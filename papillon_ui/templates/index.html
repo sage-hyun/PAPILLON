@@ -5,68 +5,175 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PAPILLON Interface</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+        :root {
+            --bg: #f4f7fb;
+            --surface: #ffffff;
+            --line: #d7e0ea;
+            --text: #142033;
+            --muted: #4f5d73;
+            --primary: #1967d2;
+            --primary-dark: #124ca0;
+            --safe: #1b8f5a;
+            --warn: #a26000;
         }
+
+        body {
+            font-family: "Segoe UI", sans-serif;
+            background: linear-gradient(180deg, #f7f9fc 0%, #edf3fa 100%);
+            color: var(--text);
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
         .container {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 18px;
         }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow: 0 10px 24px rgba(20, 32, 51, 0.05);
+        }
+
         textarea {
             width: 100%;
-            min-height: 150px;
-            padding: 10px;
-            margin: 10px 0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+            min-height: 140px;
+            padding: 12px;
+            margin-top: 8px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
             resize: vertical;
+            box-sizing: border-box;
+            font: inherit;
         }
+
         button {
-            padding: 10px 20px;
-            background-color: #007bff;
+            padding: 10px 18px;
+            background-color: var(--primary);
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 10px;
             cursor: pointer;
+            font: inherit;
         }
+
         button:hover {
-            background-color: #0056b3;
+            background-color: var(--primary-dark);
         }
-        .output-container {
-            border: 1px solid #ccc;
-            padding: 15px;
-            margin-top: 20px;
-            border-radius: 4px;
+
+        button:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
         }
+
         .button-group {
             display: flex;
             gap: 10px;
+            margin-top: 10px;
+        }
+
+        .meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .meta-card {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 12px;
+            background: #fbfdff;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .badge.direct {
+            background: rgba(27, 143, 90, 0.12);
+            color: var(--safe);
+        }
+
+        .badge.protected {
+            background: rgba(161, 96, 0, 0.12);
+            color: var(--warn);
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        ul {
+            margin: 8px 0 0;
+            padding-left: 18px;
         }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 </head>
 <body>
     <div class="container">
-        <h1>PAPILLON INTERFACE</h1>
-        
-        <div>
+        <div class="panel">
+            <h1>PAPILLON Structured v1</h1>
+            <p class="muted">Generate a route-aware prompt preview, then either edit the protected cloud prompt or run a direct no-PII query.</p>
+        </div>
+
+        <div class="panel">
             <h3>User Query</h3>
             <textarea id="userQuery" placeholder="Enter your query here..."></textarea>
-            <button onclick="generatePrompt()" id="promptCreatorBtn"><i class="fa fa-spinner fa-spin" id="loading1" style="display: none;"></i> Generate Prompt</button>
+            <div class="button-group">
+                <button onclick="generatePrompt()" id="promptCreatorBtn"><i class="fa fa-spinner fa-spin" id="loading1" style="display: none;"></i> Analyze Query</button>
+            </div>
         </div>
 
-        <div>
-            <h3>Generated Prompt (Editable)</h3>
+        <div class="panel">
+            <h3>Routing Metadata</h3>
+            <div class="meta">
+                <div class="meta-card">
+                    <div class="muted">Route</div>
+                    <div id="routeBadge" class="badge protected">protected</div>
+                </div>
+                <div class="meta-card">
+                    <div class="muted">Reason</div>
+                    <div id="routeReason">Awaiting analysis</div>
+                </div>
+                <div class="meta-card">
+                    <div class="muted">Detector Status</div>
+                    <div id="detectorStatus">Not run yet</div>
+                </div>
+            </div>
+            <div class="meta-card" style="margin-top: 12px;">
+                <div class="muted">Detected PII</div>
+                <ul id="detectedPiiList">
+                    <li>None yet</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="panel" id="promptPanel">
+            <h3 id="promptHeading">Protected Cloud Prompt</h3>
             <textarea id="promptEditor" placeholder="Generated prompt will appear here..."></textarea>
-            <button onclick="processPrompt()" id="infoAggBtn"><i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Process Edited Prompt</button>
+            <p class="muted" id="promptHint">Protected route: review and edit the structured cloud prompt before sending it.</p>
+            <div class="button-group">
+                <button onclick="processPrompt()" id="infoAggBtn"><i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Process Prompt</button>
+            </div>
         </div>
 
-        <div>
-            <h3>Output (Editable)</h3>
+        <div class="panel">
+            <h3>Output</h3>
             <textarea id="output" placeholder="Output will appear here..."></textarea>
             <div class="button-group">
                 <button onclick="saveOutput()">Save Changes</button>
@@ -77,71 +184,115 @@
 
     <script>
         let originalOutput = '';
+        let lastRoute = 'protected';
+
+        function setRoute(route, reason) {
+            lastRoute = route || 'protected';
+            const badge = document.getElementById('routeBadge');
+            badge.textContent = lastRoute;
+            badge.className = `badge ${lastRoute}`;
+            document.getElementById('routeReason').textContent = reason || 'N/A';
+        }
+
+        function updateDetectedPii(items) {
+            const piiList = document.getElementById('detectedPiiList');
+            piiList.innerHTML = '';
+            if (!items || items.length === 0) {
+                piiList.innerHTML = '<li>No high-confidence PII spans detected.</li>';
+                return;
+            }
+
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `${item.entity_type}: ${item.text}`;
+                piiList.appendChild(li);
+            });
+        }
+
+        function updatePromptState(route, prompt) {
+            const promptEditor = document.getElementById('promptEditor');
+            const promptHeading = document.getElementById('promptHeading');
+            const promptHint = document.getElementById('promptHint');
+            const processButton = document.getElementById('infoAggBtn');
+
+            promptEditor.value = prompt || '';
+            promptEditor.setAttribute('data-original', prompt || '');
+
+            if (route === 'direct') {
+                promptHeading.textContent = 'Direct Cloud Query';
+                promptHint.textContent = 'Direct route: no prompt editing is needed. The original query will be sent directly to the cloud model.';
+                promptEditor.disabled = true;
+                processButton.innerHTML = '<i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Run Direct Query';
+            } else {
+                promptHeading.textContent = 'Protected Cloud Prompt';
+                promptHint.textContent = 'Protected route: review and edit the structured cloud prompt before sending it.';
+                promptEditor.disabled = false;
+                processButton.innerHTML = '<i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Process Prompt';
+            }
+        }
 
         async function generatePrompt() {
-            const spinner = document.getElementById("loading1");
+            const spinner = document.getElementById('loading1');
+            const button = document.getElementById('promptCreatorBtn');
             spinner.style.display = 'inline-block';
-            const genButton = document.getElementById("promptCreatorBtn");
-            genButton.disabled = true;
+            button.disabled = true;
 
-            const query = document.getElementById('userQuery').value;
-            
             try {
                 const response = await fetch('/generate_prompt', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ query: query })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: document.getElementById('userQuery').value })
                 });
-                
                 const data = await response.json();
-                document.getElementById('promptEditor').value = data.prompt;
-                // Store original prompt for comparison
-                document.getElementById('promptEditor').setAttribute('data-original', data.prompt);
+                setRoute(data.route, data.route_reason);
+                updateDetectedPii(data.detected_pii);
+                updatePromptState(data.route, data.prompt);
+
+                const detectorStatus = data.detector_available
+                    ? (data.detector_uncertain ? 'Available, but low-confidence entities triggered protected fallback.' : 'Available and confident.')
+                    : `Unavailable. Protected fallback active.${data.detector_error ? ` (${data.detector_error})` : ''}`;
+                document.getElementById('detectorStatus').textContent = detectorStatus;
             } catch (error) {
                 console.error('Error:', error);
             }
 
-            spinner.style.display = "none";
-            genButton.disabled = false;
+            spinner.style.display = 'none';
+            button.disabled = false;
         }
 
         async function processPrompt() {
-            const query = document.getElementById('userQuery').value;
-            const originalPrompt = document.getElementById('promptEditor').getAttribute('data-original') || '';
-            const editedPrompt = document.getElementById('promptEditor').value;
-            
-            const spinner = document.getElementById("loading2");
+            const spinner = document.getElementById('loading2');
+            const button = document.getElementById('infoAggBtn');
             spinner.style.display = 'inline-block';
-            const genButton = document.getElementById("infoAggBtn");
-            genButton.disabled = true;
+            button.disabled = true;
+
+            const query = document.getElementById('userQuery').value;
+            const promptEditor = document.getElementById('promptEditor');
+            const originalPrompt = promptEditor.getAttribute('data-original') || '';
+            const editedPrompt = promptEditor.value;
 
             try {
                 const response = await fetch('/process_prompt', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        original_query: query,
                         original_prompt: originalPrompt,
                         edited_prompt: editedPrompt,
-                        original_query: query
+                        route: lastRoute
                     })
                 });
-                
                 const data = await response.json();
-                const outputTextarea = document.getElementById('output');
-                outputTextarea.value = data.output;
-                originalOutput = data.output; // Store the original output
-                
-                // Store the edit record if needed
-                console.log('Edit record:', data.edit_record);
+                document.getElementById('output').value = data.output;
+                originalOutput = data.output;
+                setRoute(data.route, document.getElementById('routeReason').textContent);
+                updateDetectedPii(data.detected_pii);
             } catch (error) {
                 console.error('Error:', error);
             }
-            spinner.style.display = "none";
-            genButton.disabled = false;
+
+            spinner.style.display = 'none';
+            button.disabled = false;
         }
 
         function saveOutput() {
@@ -151,11 +302,8 @@
         }
 
         function resetOutput() {
-            const outputTextarea = document.getElementById('output');
-            outputTextarea.value = originalOutput;
+            document.getElementById('output').value = originalOutput;
         }
     </script>
 </body>
 </html>
-
-

@@ -40,7 +40,7 @@ class LLMJudge(dspy.Module):
             judgment = -1
         if updated_query:
             if isinstance(pii_str, str):
-                all_pii_pieces = set(pii_str.split("||"))
+                all_pii_pieces = [piece.strip() for piece in pii_str.split("||") if piece and piece.strip()]
                 pii_score = 0
                 for p in all_pii_pieces:
                     answer = self.fact_checker(information_piece=p, prompt=updated_query)

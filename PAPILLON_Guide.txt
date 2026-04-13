@@ -1,0 +1,105 @@
+PAPILLON Structured v1 Guide
+
+
+
+In this project, the cloud prompt is the text actually prepared for the remote model.
+For protected queries, PAPILLON rewrites the original query into a safer structured form.
+
+Example format:
+
+Task:
+<task text>
+
+Context:
+<safe context text>
+
+Style:
+<style constraints text>
+
+This is built in:
+papillon/structured_pipeline.py
+
+3. How To View The Cloud Prompt In The Notebook
+
+Use:
+
+preview = structured_papillon.preview(query)
+print(preview["cloud_prompt"])
+
+Useful fields:
+- preview["route"]
+- preview["route_reason"]
+- preview["detected_pii"]
+- preview["cloud_prompt"]
+
+If you want to run the protected route after editing the prompt:
+
+edited_prompt = preview["cloud_prompt"]
+pred = structured_papillon.run_with_prompt(query, edited_prompt)
+print(pred.cloud_prompt)
+print(pred.output)
+
+4. How To Use The UI
+
+Files:
+- papillon_ui/app.py
+- papillon_ui/templates/index.html
+
+Flow:
+1. Enter a query.
+2. Click "Analyze Query".
+3. Check the route:
+   - direct
+   - protected
+4. If the route is protected, review the "Protected Cloud Prompt" box.
+5. Edit the prompt if needed.
+6. Click "Process Prompt".
+
+In the UI, the backend returns preview["cloud_prompt"], and the frontend places it in the prompt editor textarea.
+
+5. Main Routing Behavior
+
+- direct:
+  The original query is sent as-is.
+- protected:
+  PAPILLON builds a safer prompt using structured fields.
+
+Protected routing is triggered when:
+- PII is detected
+- the detector is uncertain
+- the detector is unavailable
+
+6. Why You Might Not See The Cloud Prompt
+
+If the notebook shows the route metadata but no usable prompt output, one common reason is that the preview step failed before completion.
+
+In your notebook output, there was an OpenAI connection error while generating the structured fields. That can stop the protected preview before the cloud prompt is fully shown.
+
+7. Important Files
+
+- papillon/structured_pipeline.py
+  Builds preview data and renders the cloud prompt.
+
+- papillon_ui/app.py
+  Sends preview["cloud_prompt"] to the UI as "prompt".
+
+- papillon_ui/templates/index.html
+  Displays the prompt in the "Protected Cloud Prompt" textarea.
+
+8. Simple Usage Tips
+
+- Use preview() first when testing a query.
+- Check whether the route is direct or protected.
+- For protected queries, inspect the cloud prompt before sending it onward.
+- Use run_with_prompt() if you want manual control over the protected prompt.
+- If the prompt is missing, check your local model and OpenAI connection first.
+
+9. Generated File
+
+The generated application email document is:
+OpenAI_Application_Email_Alice_Kim.docx
+
+If needed, this guide can also be converted into:
+- a shorter README note
+- a step-by-step tutorial
+- a presentation summary
