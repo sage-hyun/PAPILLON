@@ -1,9 +1,13 @@
 from argparse import ArgumentParser
+import os
 import dspy
-from dspy_compat import build_openai_lm
+from dspy_compat import build_local_lm, build_openai_lm
 from pipeline_factory import build_pipeline
 from prompt_paths import parse_model_prompt
 from run_dspy_optimization_llama import str_to_bool
+
+LOCAL_LM_API_KEY = "local-openai-compatible-key"
+LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -21,7 +25,13 @@ if __name__ == "__main__":
     if args.prompt_file == "ORIGINAL":
         args.prompt_file = parse_model_prompt(args.model_name) if args.pipeline == "legacy" else None
     
-    local_lm = dspy.LM(f'openai/{args.model_name}', api_base=f"http://0.0.0.0:{args.port}/v1", api_key="", max_tokens=4000)
+    local_lm = build_local_lm(
+        args.model_name,
+        host=LOCAL_LM_API_HOST,
+        port=args.port,
+        api_key=LOCAL_LM_API_KEY,
+        max_tokens=4000,
+    )
     dspy.configure(lm=local_lm)
 
     openai_lm = build_openai_lm(args.openai_model, max_tokens=4000)
@@ -43,4 +53,3 @@ if __name__ == "__main__":
         print("ROUTE > ", getattr(pred, "route", "legacy"))
         print("PAPILLON PROMPT > ", getattr(pred, "cloud_prompt", pred.prompt))
         print("PAPILLON OUTPUT > ", pred.output)
-

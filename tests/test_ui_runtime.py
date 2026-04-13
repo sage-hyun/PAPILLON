@@ -58,6 +58,29 @@ class FakeBrokenPipeline:
         raise RuntimeError("local model unavailable")
 
 
+class FakeProcessingBrokenPipeline:
+    def __init__(self):
+        self.untrusted_model = lambda prompt: [f"Remote fallback output for: {prompt}"]
+
+    def analyze_query(self, user_query):
+        filter_result = PrivacyFilterResult(
+            entities=[
+                DetectedEntity("PERSON", "Duc", 14, 17, score=0.85, source="presidio"),
+            ],
+            redacted_query="send email to [PERSON_1]",
+            placeholder_map={"[PERSON_1]": "Duc"},
+            has_pii=True,
+            detector_available=True,
+            uncertain=False,
+            error=None,
+        )
+        route_decision = SimpleNamespace(route="protected", reason="pii_detected")
+        return filter_result, route_decision
+
+    def run_with_prompt(self, original_query, cloud_prompt=None):
+        raise RuntimeError("local aggregator unavailable")
+
+
 class PipelineRuntimeTests(unittest.TestCase):
     def test_preview_query_exposes_explicit_cloud_prompt_metadata(self):
         runtime = PipelineRuntime()
@@ -127,6 +150,25 @@ class PipelineRuntimeTests(unittest.TestCase):
         self.assertEqual(result["prompt_title"], "Protected Cloud Prompt")
         self.assertEqual(result["cloud_prompt"], "Task:\nWrite a polished email.")
         self.assertIsNotNone(result["edit_record"])
+
+    def test_process_query_falls_back_to_remote_only_when_local_execution_fails(self):
+        runtime = PipelineRuntime()
+        runtime.configure(FakeProcessingBrokenPipeline())
+
+        result = runtime.process_query(
+            FinalInput(
+                original_query="send email to Duc",
+                original_prompt="Task:\nSend email.\n\nContext:\nRedacted user query: send email to [PERSON_1]\n\nStyle:\nProfessional.",
+                edited_prompt="Task:\nSend email.\n\nContext:\nRedacted user query: send email to [PERSON_1]\n\nStyle:\nProfessional.",
+                route="protected",
+            )
+        )
+
+        self.assertEqual(result["route"], "protected")
+        self.assertEqual(result["execution_mode"], "remote_only_fallback")
+        self.assertIn("local aggregator unavailable", result["execution_warning"])
+        self.assertIn("Remote fallback output for:", result["output"])
+        self.assertEqual(result["detected_pii"][0]["text"], "Duc")
 
 
 if __name__ == "__main__":

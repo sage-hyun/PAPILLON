@@ -22,12 +22,13 @@ TEMPLATE_DIR = APP_DIR / "templates"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from papillon.dspy_compat import build_openai_compatible_lm, build_openai_lm
+from papillon.dspy_compat import build_local_lm, build_openai_compatible_lm, build_openai_lm
 from papillon.pipeline_factory import build_pipeline
 from papillon.prompt_paths import parse_model_prompt
 
 
 LOCAL_LM_API_KEY = "local-openai-compatible-key"
+LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 
 
@@ -113,6 +114,23 @@ class PipelineRuntime:
             "detector_uncertain": getattr(filter_result, "uncertain", True),
             "detector_error": getattr(filter_result, "error", None),
         }
+
+    def _fallback_remote_prediction(self, user_query: str, route: str, cloud_prompt: str, error: Exception):
+        if not hasattr(self.pipeline, "untrusted_model"):
+            raise error
+
+        analysis_payload = self._safe_analysis_payload(user_query) or {}
+        remote_prompt = user_query if route == "direct" else cloud_prompt
+        remote_output = self.pipeline.untrusted_model(remote_prompt)[0]
+        return SimpleNamespace(
+            output=remote_output,
+            route=route,
+            cloud_prompt=remote_prompt,
+            structured_fields={},
+            detected_pii=analysis_payload.get("detected_pii", []),
+            execution_warning=f"Fell back to remote-only execution after local model failure: {type(error).__name__}: {error}",
+            execution_mode="remote_only_fallback",
+        )
 
     @staticmethod
     def _build_prompt_payload(route: str, cloud_prompt: str, editable: Optional[bool] = None) -> dict:
@@ -254,24 +272,27 @@ class PipelineRuntime:
         route = final_input.route or "protected"
         cloud_prompt = final_input.edited_prompt or final_input.original_prompt
 
-        if hasattr(self.pipeline, "run_with_prompt"):
-            prediction = self.pipeline.run_with_prompt(
-                final_input.original_query,
-                None if route == "direct" else cloud_prompt,
-            )
-        else:
-            llm_response = self.pipeline.untrusted_model(cloud_prompt)[0]
-            final_output = self.pipeline.info_aggregator(
-                userQuery=final_input.original_query,
-                modelExampleResponses=llm_response,
-            ).finalOutput
-            prediction = SimpleNamespace(
-                output=final_output,
-                route="protected",
-                cloud_prompt=cloud_prompt,
-                structured_fields={},
-                detected_pii=[],
-            )
+        try:
+            if hasattr(self.pipeline, "run_with_prompt"):
+                prediction = self.pipeline.run_with_prompt(
+                    final_input.original_query,
+                    None if route == "direct" else cloud_prompt,
+                )
+            else:
+                llm_response = self.pipeline.untrusted_model(cloud_prompt)[0]
+                final_output = self.pipeline.info_aggregator(
+                    userQuery=final_input.original_query,
+                    modelExampleResponses=llm_response,
+                ).finalOutput
+                prediction = SimpleNamespace(
+                    output=final_output,
+                    route="protected",
+                    cloud_prompt=cloud_prompt,
+                    structured_fields={},
+                    detected_pii=[],
+                )
+        except Exception as exc:
+            prediction = self._fallback_remote_prediction(final_input.original_query, route, cloud_prompt, exc)
 
         edit_record = None
         if getattr(prediction, "route", route) == "protected":
@@ -291,6 +312,8 @@ class PipelineRuntime:
                 "structured_fields": getattr(prediction, "structured_fields", {}),
                 "detected_pii": getattr(prediction, "detected_pii", []),
                 "edit_record": edit_record,
+                "execution_warning": getattr(prediction, "execution_warning", None),
+                "execution_mode": getattr(prediction, "execution_mode", "standard"),
             }
         )
         return payload
@@ -353,10 +376,10 @@ if __name__ == "__main__":
     if resolved_prompt_file == "ORIGINAL":
         resolved_prompt_file = parse_model_prompt(args.model_name) if args.pipeline == "legacy" else None
 
-    local_lm = dspy.LM(
-        f"openai/{args.model_name}",
-        api_base=f"http://0.0.0.0:{args.port}/v1",
-        # OpenAI-compatible local servers still require a non-empty key value.
+    local_lm = build_local_lm(
+        args.model_name,
+        host=LOCAL_LM_API_HOST,
+        port=args.port,
         api_key=LOCAL_LM_API_KEY,
         max_tokens=4000,
     )
@@ -381,6 +404,7 @@ if __name__ == "__main__":
 
     print("Starting FastAPI server...")
     print(f"You can access it at: http://127.0.0.1:{args.server_port}")
+    print(f"Local LM API base: http://{LOCAL_LM_API_HOST}:{args.port}/v1")
     print(f"Remote provider: {remote_provider}")
     if remote_api_base:
         print(f"Remote API base: {remote_api_base}")

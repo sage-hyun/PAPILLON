@@ -2,7 +2,7 @@ import os
 import dspy
 from dspy import Example
 
-from dspy_compat import build_openai_lm
+from dspy_compat import build_local_lm, build_openai_lm
 from llm_judge import LLMJudge
 from evaluation_metrics import collect_deterministic_metrics, normalized_leakage
 from pipeline_factory import build_pipeline
@@ -13,6 +13,7 @@ from dspy.teleprompt import MIPROv2
 
 
 LOCAL_LM_API_KEY = "local-openai-compatible-key"
+LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
 
 from argparse import ArgumentParser
 import json
@@ -115,9 +116,10 @@ if __name__ == "__main__":
     parser.add_argument("--pii_score_threshold", type=float, default=0.5)
     args = parser.parse_args()
 
-    local_lm = dspy.LM(
-        'openai/default',
-        api_base=f"http://127.0.0.1:{args.port}/v1",
+    local_lm = build_local_lm(
+        "default",
+        host=LOCAL_LM_API_HOST,
+        port=args.port,
         api_key=LOCAL_LM_API_KEY,
         max_tokens=4000,
     )

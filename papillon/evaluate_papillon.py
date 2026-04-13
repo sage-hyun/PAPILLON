@@ -1,5 +1,6 @@
 import json
 from argparse import ArgumentParser
+import os
 
 import dspy
 import litellm
@@ -7,13 +8,14 @@ import pandas
 import tqdm
 from dspy import Example
 
-from dspy_compat import build_openai_lm
+from dspy_compat import build_local_lm, build_openai_lm
 from pipeline_factory import build_pipeline
 from prompt_paths import parse_model_prompt
 from run_dspy_optimization_llama import metric_finegrained, str_to_bool
 
 
 LOCAL_LM_API_KEY = "local-openai-compatible-key"
+LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
 
 
 def safe_average(values):
@@ -35,9 +37,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_frame = pandas.read_csv(args.data_file)
-    local_lm = dspy.LM(
-        f"openai/{args.model_name}",
-        api_base=f"http://0.0.0.0:{args.port}/v1",
+    local_lm = build_local_lm(
+        args.model_name,
+        host=LOCAL_LM_API_HOST,
+        port=args.port,
         api_key=LOCAL_LM_API_KEY,
         max_tokens=4000,
     )
