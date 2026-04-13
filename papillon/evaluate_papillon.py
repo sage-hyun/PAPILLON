@@ -13,6 +13,9 @@ from prompt_paths import parse_model_prompt
 from run_dspy_optimization_llama import metric_finegrained, str_to_bool
 
 
+LOCAL_LM_API_KEY = "local-openai-compatible-key"
+
+
 def safe_average(values):
     return sum(values) / len(values) if values else 0.0
 
@@ -35,7 +38,7 @@ if __name__ == "__main__":
     local_lm = dspy.LM(
         f"openai/{args.model_name}",
         api_base=f"http://0.0.0.0:{args.port}/v1",
-        api_key="",
+        api_key=LOCAL_LM_API_KEY,
         max_tokens=4000,
     )
     dspy.configure(lm=local_lm)

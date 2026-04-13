@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
+from papillon.pipeline_types import DetectedEntity, PrivacyFilterResult
 from papillon_ui.app import FinalInput, PipelineRuntime
 
 
@@ -34,6 +35,25 @@ class FakeStructuredPipeline:
 
 
 class FakeBrokenPipeline:
+    def analyze_query(self, user_query):
+        filter_result = PrivacyFilterResult(
+            entities=[
+                DetectedEntity("PERSON", "Duc", 26, 29, score=0.85, source="presidio"),
+                DetectedEntity("LOCATION", "Vietnam", 33, 40, score=0.85, source="presidio"),
+            ],
+            redacted_query="write me an email send to [PERSON_1] at [LOCATION_1]",
+            placeholder_map={
+                "[PERSON_1]": "Duc",
+                "[LOCATION_1]": "Vietnam",
+            },
+            has_pii=True,
+            detector_available=True,
+            uncertain=False,
+            error=None,
+        )
+        route_decision = SimpleNamespace(route="protected", reason="pii_detected")
+        return filter_result, route_decision
+
     def preview(self, user_query):
         raise RuntimeError("local model unavailable")
 
@@ -56,14 +76,39 @@ class PipelineRuntimeTests(unittest.TestCase):
         runtime = PipelineRuntime()
         runtime.configure(FakeBrokenPipeline())
 
-        preview = runtime.preview_query("Write a professional application email.")
+        preview = runtime.preview_query("write me an email send to Duc at Vietnam")
 
         self.assertEqual(preview["route"], "protected")
-        self.assertEqual(preview["route_reason"], "preview_error")
-        self.assertEqual(preview["cloud_prompt"], "")
-        self.assertFalse(preview["prompt_editable"])
-        self.assertIn("could not be generated", preview["prompt_hint"])
+        self.assertEqual(preview["route_reason"], "pii_detected")
+        self.assertIn("Task:\nFulfill the user's request", preview["cloud_prompt"])
+        self.assertIn("Redacted user query: write me an email send to [PERSON_1] at [LOCATION_1]", preview["cloud_prompt"])
+        self.assertTrue(preview["prompt_editable"])
+        self.assertIn("safe fallback prompt", preview["prompt_hint"])
         self.assertEqual(preview["preview_error"], "local model unavailable")
+        self.assertEqual(
+            preview["detected_pii"],
+            [
+                {
+                    "entity_type": "PERSON",
+                    "text": "Duc",
+                    "start": 26,
+                    "end": 29,
+                    "score": 0.85,
+                    "source": "presidio",
+                },
+                {
+                    "entity_type": "LOCATION",
+                    "text": "Vietnam",
+                    "start": 33,
+                    "end": 40,
+                    "score": 0.85,
+                    "source": "presidio",
+                },
+            ],
+        )
+        self.assertEqual(preview["redacted_query"], "write me an email send to [PERSON_1] at [LOCATION_1]")
+        self.assertTrue(preview["detector_available"])
+        self.assertFalse(preview["detector_uncertain"])
 
     def test_process_query_returns_prompt_aliases_and_metadata(self):
         runtime = PipelineRuntime()

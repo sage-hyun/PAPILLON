@@ -11,6 +11,9 @@ from dspy.evaluate.evaluate import Evaluate
 
 from dspy.teleprompt import MIPROv2
 
+
+LOCAL_LM_API_KEY = "local-openai-compatible-key"
+
 from argparse import ArgumentParser
 import json
 
@@ -112,7 +115,12 @@ if __name__ == "__main__":
     parser.add_argument("--pii_score_threshold", type=float, default=0.5)
     args = parser.parse_args()
 
-    local_lm = dspy.LM('openai/default', api_base=f"http://127.0.0.1:{args.port}/v1", api_key="", max_tokens=4000)
+    local_lm = dspy.LM(
+        'openai/default',
+        api_base=f"http://127.0.0.1:{args.port}/v1",
+        api_key=LOCAL_LM_API_KEY,
+        max_tokens=4000,
+    )
     dspy.configure(lm=local_lm)
 
     openai_lm = build_openai_lm(args.openai_model, max_tokens=4000)

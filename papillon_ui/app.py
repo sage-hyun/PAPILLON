@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from datetime import datetime
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -21,9 +22,13 @@ TEMPLATE_DIR = APP_DIR / "templates"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from papillon.dspy_compat import build_openai_lm
+from papillon.dspy_compat import build_openai_compatible_lm, build_openai_lm
 from papillon.pipeline_factory import build_pipeline
 from papillon.prompt_paths import parse_model_prompt
+
+
+LOCAL_LM_API_KEY = "local-openai-compatible-key"
+OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 
 
 def str_to_bool(value):
@@ -35,6 +40,24 @@ def str_to_bool(value):
     if lowered in {"false", "0", "no", "n"}:
         return False
     raise ValueError(f"Cannot interpret boolean value: {value}")
+
+
+def build_remote_untrusted_model(model_name: str):
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_api_key:
+        remote_api_base = os.getenv("OPENROUTER_API_BASE", OPENROUTER_API_BASE)
+        return (
+            build_openai_compatible_lm(
+                model_name,
+                api_base=remote_api_base,
+                api_key=openrouter_api_key,
+                max_tokens=4000,
+            ),
+            "openrouter",
+            remote_api_base,
+        )
+
+    return build_openai_lm(model_name, max_tokens=4000), "openai", None
 
 
 app = FastAPI()
@@ -62,6 +85,36 @@ class PipelineRuntime:
         self.pipeline = pipeline
 
     @staticmethod
+    def _serialize_detected_pii(entities) -> list:
+        serialized = []
+        for entity in entities or []:
+            if hasattr(entity, "to_dict"):
+                serialized.append(entity.to_dict())
+            else:
+                serialized.append(entity)
+        return serialized
+
+    def _safe_analysis_payload(self, user_query: str) -> Optional[dict]:
+        if not hasattr(self.pipeline, "analyze_query"):
+            return None
+
+        try:
+            filter_result, route_decision = self.pipeline.analyze_query(user_query)
+        except Exception:
+            return None
+
+        return {
+            "route": getattr(route_decision, "route", "protected"),
+            "route_reason": getattr(route_decision, "reason", "preview_error"),
+            "detected_pii": self._serialize_detected_pii(getattr(filter_result, "entities", [])),
+            "redacted_query": getattr(filter_result, "redacted_query", ""),
+            "placeholder_map": dict(getattr(filter_result, "placeholder_map", {})),
+            "detector_available": getattr(filter_result, "detector_available", False),
+            "detector_uncertain": getattr(filter_result, "uncertain", True),
+            "detector_error": getattr(filter_result, "error", None),
+        }
+
+    @staticmethod
     def _build_prompt_payload(route: str, cloud_prompt: str, editable: Optional[bool] = None) -> dict:
         is_direct = route == "direct"
         prompt_editable = (not is_direct) if editable is None else editable
@@ -87,24 +140,57 @@ class PipelineRuntime:
         }
 
     @classmethod
-    def _preview_error_payload(cls, error: Exception) -> dict:
+    def _build_fallback_protected_prompt(cls, redacted_query: str) -> str:
+        safe_query = (redacted_query or "").strip()
+        if not safe_query:
+            return ""
+        return (
+            "Task:\n"
+            "Fulfill the user's request using the privacy-preserving information below.\n\n"
+            "Context:\n"
+            f"Redacted user query: {safe_query}\n\n"
+            "Style:\n"
+            "Helpful, concise, and privacy-preserving. Do not infer or restore hidden personal details."
+        )
+
+    @classmethod
+    def _preview_error_payload(cls, error: Exception, analysis_payload: Optional[dict] = None, user_query: str = "") -> dict:
         error_message = str(error) or error.__class__.__name__
-        payload = cls._build_prompt_payload("protected", "", editable=False)
+        route = (analysis_payload or {}).get("route", "protected")
+        redacted_query = (analysis_payload or {}).get("redacted_query", "")
+        cloud_prompt = user_query if route == "direct" else cls._build_fallback_protected_prompt(redacted_query)
+        prompt_editable = route == "protected" and bool(cloud_prompt)
+        payload = cls._build_prompt_payload(route, cloud_prompt, editable=prompt_editable)
+        detected_pii = (analysis_payload or {}).get("detected_pii", [])
+        prompt_hint = (
+            "Protected route: automated prompt planning failed, so PAPILLON generated a safe fallback prompt from the redacted query. Review it before continuing."
+            if route == "protected" and cloud_prompt
+            else (
+                "Protected route: PII was detected locally, but the cloud prompt could not be generated. Check the local model or API connection, then retry."
+                if route == "protected" and detected_pii
+                else "Protected route: the cloud prompt could not be generated. Check the local model or API connection, then retry."
+            )
+        )
         payload.update(
             {
-                "route": "protected",
-                "route_reason": "preview_error",
-                "editable": False,
+                "route": route,
+                "route_reason": (analysis_payload or {}).get("route_reason", "preview_error"),
+                "editable": prompt_editable,
                 "structured_fields": {},
-                "detected_pii": [],
-                "redacted_query": "",
-                "placeholder_map": {},
-                "detector_available": False,
-                "detector_uncertain": True,
-                "detector_error": error_message,
+                "detected_pii": detected_pii,
+                "redacted_query": redacted_query,
+                "placeholder_map": (analysis_payload or {}).get("placeholder_map", {}),
+                "detector_available": (analysis_payload or {}).get("detector_available", False),
+                "detector_uncertain": (analysis_payload or {}).get("detector_uncertain", True),
+                "detector_error": (analysis_payload or {}).get("detector_error", error_message),
                 "preview_error": error_message,
-                "prompt_hint": "Protected route: the cloud prompt could not be generated. Check the local model or API connection, then retry.",
-                "prompt_explanation": "Prompt generation failed before PAPILLON could produce the exact cloud prompt. The error details are returned so the UI can surface a clearer failure state.",
+                "prompt_hint": prompt_hint,
+                "prompt_explanation": (
+                    "Local routing and PII analysis completed, but prompt generation failed before PAPILLON could produce the exact cloud prompt. "
+                    "A deterministic fallback prompt was built from the redacted query so you can continue without exposing raw identifiers."
+                    if cloud_prompt and route == "protected"
+                    else "Local routing and PII analysis completed, but prompt generation failed before PAPILLON could produce the exact cloud prompt. The UI still returns the local analysis so detected entities are not hidden by the preview failure."
+                ),
             }
         )
         return payload
@@ -117,7 +203,8 @@ class PipelineRuntime:
             try:
                 preview = self.pipeline.preview(user_query)
             except Exception as exc:
-                return self._preview_error_payload(exc)
+                analysis_payload = self._safe_analysis_payload(user_query)
+                return self._preview_error_payload(exc, analysis_payload, user_query=user_query)
 
             payload = self._build_prompt_payload(
                 preview["route"],
@@ -269,12 +356,13 @@ if __name__ == "__main__":
     local_lm = dspy.LM(
         f"openai/{args.model_name}",
         api_base=f"http://0.0.0.0:{args.port}/v1",
-        api_key="",
+        # OpenAI-compatible local servers still require a non-empty key value.
+        api_key=LOCAL_LM_API_KEY,
         max_tokens=4000,
     )
     dspy.configure(lm=local_lm)
 
-    openai_lm = build_openai_lm(args.openai_model, max_tokens=4000)
+    openai_lm, remote_provider, remote_api_base = build_remote_untrusted_model(args.openai_model)
     pipeline = build_pipeline(
         pipeline_name=args.pipeline,
         untrusted_model=openai_lm,
@@ -293,6 +381,9 @@ if __name__ == "__main__":
 
     print("Starting FastAPI server...")
     print(f"You can access it at: http://127.0.0.1:{args.server_port}")
+    print(f"Remote provider: {remote_provider}")
+    if remote_api_base:
+        print(f"Remote API base: {remote_api_base}")
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=args.server_port)

@@ -167,6 +167,7 @@
             <h3 id="promptHeading">Protected Cloud Prompt</h3>
             <textarea id="promptEditor" placeholder="Generated prompt will appear here..."></textarea>
             <p class="muted" id="promptHint">Protected route: review and edit the structured cloud prompt before sending it.</p>
+            <p class="muted" id="promptExplanation">This panel shows the exact text sent to the cloud model.</p>
             <div class="button-group">
                 <button onclick="processPrompt()" id="infoAggBtn"><i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Process Prompt</button>
             </div>
@@ -185,6 +186,22 @@
     <script>
         let originalOutput = '';
         let lastRoute = 'protected';
+
+        function getErrorMessage(data, fallback) {
+            if (!data) {
+                return fallback;
+            }
+            if (typeof data.detail === 'string') {
+                return data.detail;
+            }
+            if (typeof data.preview_error === 'string') {
+                return data.preview_error;
+            }
+            if (typeof data.detector_error === 'string') {
+                return data.detector_error;
+            }
+            return fallback;
+        }
 
         function setRoute(route, reason) {
             lastRoute = route || 'protected';
@@ -209,26 +226,33 @@
             });
         }
 
-        function updatePromptState(route, prompt) {
+        function updatePromptState(data) {
+            const route = data.route;
+            const prompt = data.cloud_prompt ?? data.prompt ?? '';
             const promptEditor = document.getElementById('promptEditor');
             const promptHeading = document.getElementById('promptHeading');
             const promptHint = document.getElementById('promptHint');
+            const promptExplanation = document.getElementById('promptExplanation');
             const processButton = document.getElementById('infoAggBtn');
+            const promptEditable = data.prompt_editable ?? (route !== 'direct');
+            const canProcess = route === 'direct' || Boolean(prompt);
 
             promptEditor.value = prompt || '';
             promptEditor.setAttribute('data-original', prompt || '');
+            promptHeading.textContent = data.prompt_title || (route === 'direct' ? 'Direct Cloud Query' : 'Protected Cloud Prompt');
+            promptHint.textContent = data.prompt_hint || (route === 'direct'
+                ? 'Direct route: no prompt editing is needed. The original query will be sent directly to the cloud model.'
+                : 'Protected route: review and edit the structured cloud prompt before sending it.');
+            promptExplanation.textContent = data.prompt_explanation || 'This panel shows the exact text sent to the cloud model.';
 
             if (route === 'direct') {
-                promptHeading.textContent = 'Direct Cloud Query';
-                promptHint.textContent = 'Direct route: no prompt editing is needed. The original query will be sent directly to the cloud model.';
                 promptEditor.disabled = true;
                 processButton.innerHTML = '<i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Run Direct Query';
             } else {
-                promptHeading.textContent = 'Protected Cloud Prompt';
-                promptHint.textContent = 'Protected route: review and edit the structured cloud prompt before sending it.';
-                promptEditor.disabled = false;
+                promptEditor.disabled = !promptEditable;
                 processButton.innerHTML = '<i class="fa fa-spinner fa-spin" id="loading2" style="display: none;"></i> Process Prompt';
             }
+            processButton.disabled = !canProcess;
         }
 
         async function generatePrompt() {
@@ -244,16 +268,26 @@
                     body: JSON.stringify({ query: document.getElementById('userQuery').value })
                 });
                 const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(getErrorMessage(data, 'Failed to analyze the query.'));
+                }
                 setRoute(data.route, data.route_reason);
                 updateDetectedPii(data.detected_pii);
-                updatePromptState(data.route, data.prompt);
+                updatePromptState(data);
 
-                const detectorStatus = data.detector_available
+                let detectorStatus = data.detector_available
                     ? (data.detector_uncertain ? 'Available, but low-confidence entities triggered protected fallback.' : 'Available and confident.')
                     : `Unavailable. Protected fallback active.${data.detector_error ? ` (${data.detector_error})` : ''}`;
+                if (data.preview_error) {
+                    detectorStatus += ` Prompt generation failed: ${data.preview_error}`;
+                }
                 document.getElementById('detectorStatus').textContent = detectorStatus;
+                document.getElementById('output').value = data.preview_error
+                    ? `Preview warning: ${data.preview_error}`
+                    : '';
             } catch (error) {
                 console.error('Error:', error);
+                document.getElementById('output').value = `Error: ${error.message || error}`;
             }
 
             spinner.style.display = 'none';
@@ -283,12 +317,17 @@
                     })
                 });
                 const data = await response.json();
-                document.getElementById('output').value = data.output;
-                originalOutput = data.output;
+                if (!response.ok) {
+                    throw new Error(getErrorMessage(data, 'Failed to process the prompt.'));
+                }
+                const outputValue = data.output ?? 'No output was returned by the server.';
+                document.getElementById('output').value = outputValue;
+                originalOutput = outputValue;
                 setRoute(data.route, document.getElementById('routeReason').textContent);
                 updateDetectedPii(data.detected_pii);
             } catch (error) {
                 console.error('Error:', error);
+                document.getElementById('output').value = `Error: ${error.message || error}`;
             }
 
             spinner.style.display = 'none';
