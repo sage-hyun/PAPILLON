@@ -64,7 +64,7 @@ dependencies:
       - psutil==6.1.0
       - ptyprocess==0.7.0
       - py-cpuinfo==9.0.0
-      - pyairports==2.1.1
+      - git+https://github.com/ozeliger/pyairports.git
       - pycountry==24.6.1
       - presidio-analyzer==2.2.362
       - pytz==2024.2
@@ -87,4 +87,3 @@ dependencies:
       - watchfiles==0.24.0
       - websockets==14.1
       - xformers==0.0.28.post3
-

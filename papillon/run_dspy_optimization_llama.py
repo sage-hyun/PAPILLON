@@ -4,7 +4,11 @@ from dspy import Example
 
 from dspy_compat import build_local_lm, build_openai_lm
 from llm_judge import LLMJudge
-from evaluation_metrics import collect_deterministic_metrics, normalized_leakage
+from evaluation_metrics import (
+    collect_deterministic_metrics,
+    normalized_leakage,
+    weighted_leakage_from_level_counts,
+)
 from pipeline_factory import build_pipeline
 import pandas
 from dspy.evaluate.evaluate import Evaluate
@@ -60,13 +64,21 @@ def metric(gold, pred, trace=None):
     if trace is not None: return final_total_score >= 1
     return final_total_score
 
-def metric_finegrained(gold, pred, openai_lm):
+def metric_finegrained(
+    gold,
+    pred,
+    openai_lm,
+    l1_str=None,
+    l2_str=None,
+    l3_str=None,
+):
     og_model_output, og_user_query, og_pii = gold.target_response, gold.user_query, gold.pii_str
     pred_prompt, pred_out = pred.prompt or "", pred.output
     if pred_prompt is not None and len(pred_prompt) == 0:
         return {
             "quality": -1,
             "leakage": -1,
+            "weighted_leakage": -1,
             "exposed_token_count": -1,
             "entity_retention_rate": -1,
             "schema_valid": False,
@@ -74,7 +86,7 @@ def metric_finegrained(gold, pred, openai_lm):
         }
     with dspy.context(lm=openai_lm):
         score_dict = llm_judge(user_query=og_user_query, new_resp=pred_out, og_resp=og_model_output,
-                                            updated_query=pred_prompt, pii_str=og_pii)
+                                            updated_query=pred_prompt, pii_str=og_pii, l1_str=l1_str, l2_str=l2_str, l3_str=l3_str)
     deterministic_metrics = collect_deterministic_metrics(
         pii_str=og_pii,
         target_response=og_model_output,
@@ -84,9 +96,41 @@ def metric_finegrained(gold, pred, openai_lm):
         structured_fields=getattr(pred, "structured_fields", {}),
         latency=getattr(pred, "latency", 0.0)
     )
+    level_counts_available = any(
+        isinstance(value, str) and value.strip()
+        for value in (l1_str, l2_str, l3_str)
+    )
+    if level_counts_available:
+        weighted_parts = weighted_leakage_from_level_counts(
+            leaked_l1=getattr(score_dict, "leaked_l1", 0),
+            total_l1=getattr(score_dict, "total_l1", 0),
+            leaked_l2=getattr(score_dict, "leaked_l2", 0),
+            total_l2=getattr(score_dict, "total_l2", 0),
+            leaked_l3=getattr(score_dict, "leaked_l3", 0),
+            total_l3=getattr(score_dict, "total_l3", 0),
+        )
+        leakage_value = weighted_parts["weighted_leakage"]
+    else:
+        weighted_parts = {
+            "weighted_leakage": normalized_leakage(score_dict.leakage, og_pii),
+            "leakage_l1_ratio": 0.0,
+            "leakage_l2_ratio": 0.0,
+            "leakage_l3_ratio": 0.0,
+        }
+        leakage_value = weighted_parts["weighted_leakage"]
     return {
         "quality": score_dict.quality,
-        "leakage": normalized_leakage(score_dict.leakage, og_pii),
+        "leakage": leakage_value,
+        "weighted_leakage": weighted_parts["weighted_leakage"],
+        "leakage_l1_ratio": weighted_parts["leakage_l1_ratio"],
+        "leakage_l2_ratio": weighted_parts["leakage_l2_ratio"],
+        "leakage_l3_ratio": weighted_parts["leakage_l3_ratio"],
+        "leaked_l1": getattr(score_dict, "leaked_l1", 0),
+        "total_l1": getattr(score_dict, "total_l1", 0),
+        "leaked_l2": getattr(score_dict, "leaked_l2", 0),
+        "total_l2": getattr(score_dict, "total_l2", 0),
+        "leaked_l3": getattr(score_dict, "leaked_l3", 0),
+        "total_l3": getattr(score_dict, "total_l3", 0),
         **deterministic_metrics,
     }
 

@@ -82,7 +82,10 @@ if __name__ == "__main__":
         if not isinstance(row["target_response"], str):
             continue
 
-        metrics = metric_finegrained(gold, pred, openai_lm)
+        l1_str = row["l1_units"] if "l1_units" in row and isinstance(row["l1_units"], str) else ""
+        l2_str = row["l2_units"] if "l2_units" in row and isinstance(row["l2_units"], str) else ""
+        l3_str = row["l3_terms"] if "l3_terms" in row and isinstance(row["l3_terms"], str) else ""
+        metrics = metric_finegrained(gold, pred, openai_lm, l1_str=l1_str, l2_str=l2_str, l3_str=l3_str)
         if metrics["quality"] != -1 and metrics["leakage"] != -1:
             qual_scores.append(metrics["quality"])
             leak_scores.append(metrics["leakage"])
@@ -91,6 +94,16 @@ if __name__ == "__main__":
             {
                 "quals": metrics["quality"],
                 "leaks": metrics["leakage"],
+                "weighted_leakage": metrics.get("weighted_leakage", metrics["leakage"]),
+                "leakage_l1_ratio": metrics.get("leakage_l1_ratio", 0.0),
+                "leakage_l2_ratio": metrics.get("leakage_l2_ratio", 0.0),
+                "leakage_l3_ratio": metrics.get("leakage_l3_ratio", 0.0),
+                "leaked_l1": metrics.get("leaked_l1", 0),
+                "total_l1": metrics.get("total_l1", 0),
+                "leaked_l2": metrics.get("leaked_l2", 0),
+                "total_l2": metrics.get("total_l2", 0),
+                "leaked_l3": metrics.get("leaked_l3", 0),
+                "total_l3": metrics.get("total_l3", 0),
                 "exposed_token_count": metrics["exposed_token_count"],
                 "entity_retention_rate": metrics["entity_retention_rate"],
                 "schema_valid": metrics["schema_valid"],
@@ -101,6 +114,9 @@ if __name__ == "__main__":
                 "papillon_completion": getattr(pred, "output", ""),
                 "papillon_prompt": getattr(pred, "cloud_prompt", getattr(pred, "prompt", "")),
                 "pii_str": row["pii_units"],
+                "l1_units": l1_str,
+                "l2_units": l2_str,
+                "l3_terms": l3_str,
                 "structured_fields_json": json.dumps(getattr(pred, "structured_fields", {})),
                 "detected_pii_json": json.dumps(getattr(pred, "detected_pii", [])),
             }

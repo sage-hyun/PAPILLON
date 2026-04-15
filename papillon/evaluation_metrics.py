@@ -27,6 +27,50 @@ def normalized_leakage(leakage_score: int, pii_str: Optional[str]) -> float:
     return leakage_score / len(pii_units)
 
 
+def safe_ratio(leaked: int, total: int) -> float:
+    if not isinstance(total, int) or total <= 0:
+        return 0.0
+    if not isinstance(leaked, int) or leaked < 0:
+        return 0.0
+    return leaked / total
+
+
+def weighted_leakage_from_level_counts(
+    leaked_l1: int,
+    total_l1: int,
+    leaked_l2: int,
+    total_l2: int,
+    leaked_l3: int,
+    total_l3: int,
+    w1: float = 1.0,
+    w2: float = 0.6,
+    w3: float = 0.25,
+) -> Dict[str, float]:
+    r1 = safe_ratio(leaked_l1, total_l1)
+    r2 = safe_ratio(leaked_l2, total_l2)
+    r3 = safe_ratio(leaked_l3, total_l3)
+
+    numerator = 0.0
+    denominator = 0.0
+    if total_l1 > 0:
+        numerator += w1 * r1
+        denominator += w1
+    if total_l2 > 0:
+        numerator += w2 * r2
+        denominator += w2
+    if total_l3 > 0:
+        numerator += w3 * r3
+        denominator += w3
+
+    weighted_leak = (numerator / denominator) if denominator > 0 else 0.0
+    return {
+        "weighted_leakage": weighted_leak,
+        "leakage_l1_ratio": r1,
+        "leakage_l2_ratio": r2,
+        "leakage_l3_ratio": r3,
+    }
+
+
 def exposed_token_count(pii_str: Optional[str], cloud_prompt: Optional[str]) -> int:
     prompt = (cloud_prompt or "").lower()
     pii_units = parse_pii_units(pii_str)
