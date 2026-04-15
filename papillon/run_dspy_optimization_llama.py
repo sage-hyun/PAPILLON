@@ -12,6 +12,12 @@ from dspy.evaluate.evaluate import Evaluate
 from dspy.teleprompt import MIPROv2
 
 
+### ignore warning
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
+
 LOCAL_LM_API_KEY = "local-openai-compatible-key"
 LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
 
@@ -76,6 +82,7 @@ def metric_finegrained(gold, pred, openai_lm):
         cloud_prompt=getattr(pred, "cloud_prompt", pred_prompt),
         route=getattr(pred, "route", "legacy"),
         structured_fields=getattr(pred, "structured_fields", {}),
+        latency=getattr(pred, "latency", 0.0)
     )
     return {
         "quality": score_dict.quality,
@@ -110,6 +117,7 @@ if __name__ == "__main__":
     parser.add_argument("--openai_model", type=str, default="gpt-4o-mini")
     parser.add_argument("--prompt_output", type=str, help="The json file path where we will store the optimized prompts")
     parser.add_argument("--data_file", type=str, help="The csv containing PUPA-format data for optimization")
+    parser.add_argument("--model_name", type=str, help="The Huggingface identifier / name for your local LM")
     parser.add_argument("--pipeline", type=str, choices=["legacy", "structured_v1"], default="legacy")
     parser.add_argument("--allow_direct_bypass", type=str_to_bool, default=True)
     parser.add_argument("--privacy_filter", type=str, default="regex_presidio")
@@ -117,7 +125,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     local_lm = build_local_lm(
-        "default",
+        args.model_name,
         host=LOCAL_LM_API_HOST,
         port=args.port,
         api_key=LOCAL_LM_API_KEY,

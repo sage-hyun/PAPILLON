@@ -60,7 +60,7 @@ if __name__ == "__main__":
         resolved_prompt_file = parse_model_prompt(args.model_name) if args.pipeline == "legacy" else None
 
     if resolved_prompt_file:
-        pipeline.load(resolved_prompt_file, use_legacy_loading=True)
+        pipeline.load(resolved_prompt_file)
 
     rows = []
     qual_scores = []
@@ -94,6 +94,7 @@ if __name__ == "__main__":
                 "exposed_token_count": metrics["exposed_token_count"],
                 "entity_retention_rate": metrics["entity_retention_rate"],
                 "schema_valid": metrics["schema_valid"],
+                "latency": metrics["latency"],
                 "route": metrics["route"],
                 "queries": row["user_query"],
                 "targets": row["target_response"],

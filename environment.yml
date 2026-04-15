@@ -87,4 +87,5 @@ dependencies:
       - watchfiles==0.24.0
       - websockets==14.1
       - xformers==0.0.28.post3
+      - presidio_analyzer==2.2.362
 

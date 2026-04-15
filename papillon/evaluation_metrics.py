@@ -29,7 +29,15 @@ def normalized_leakage(leakage_score: int, pii_str: Optional[str]) -> float:
 
 def exposed_token_count(pii_str: Optional[str], cloud_prompt: Optional[str]) -> int:
     prompt = (cloud_prompt or "").lower()
-    return sum(1 for pii in parse_pii_units(pii_str) if pii.lower() in prompt)
+    pii_units = parse_pii_units(pii_str)
+    
+    total_count = 0
+    for pii in pii_units:
+        pii_lower = pii.lower()
+        pattern = rf"\b{re.escape(pii_lower)}\b"
+        total_count += len(re.findall(pattern, prompt))
+        
+    return total_count
 
 
 def entity_retention_rate(
@@ -88,10 +96,12 @@ def collect_deterministic_metrics(
     cloud_prompt: Optional[str],
     route: Optional[str],
     structured_fields: Optional[Dict[str, str]],
+    latency: Optional[float]
 ) -> Dict[str, object]:
     return {
         "exposed_token_count": exposed_token_count(pii_str, cloud_prompt),
         "entity_retention_rate": entity_retention_rate(pii_str, target_response, final_output),
         "schema_valid": schema_valid(route, structured_fields, cloud_prompt),
+        "latency": latency,
         "route": route or "legacy",
     }

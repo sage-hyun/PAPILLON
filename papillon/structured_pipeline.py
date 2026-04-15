@@ -1,6 +1,7 @@
 import os
 
 import dspy
+import time
 
 try:
     from .pipeline_types import decide_route
@@ -89,9 +90,11 @@ class StructuredPAPILLON(dspy.Module):
         return self._execute(user_query, preview, effective_prompt)
 
     def forward(self, user_query):
+        start_time = time.perf_counter()
         try:
             preview = self.preview(user_query)
-            return self._execute(user_query, preview, preview["cloud_prompt"])
+            response = self._execute(user_query, preview, preview["cloud_prompt"], start_time)
+            return response
         except Exception:
             return dspy.Prediction(
                 prompt="",
@@ -105,6 +108,7 @@ class StructuredPAPILLON(dspy.Module):
                 placeholder_map={},
                 detector_available=False,
                 detector_uncertain=True,
+                latency=0.0
             )
 
     def _build_structured_fields(self, user_query, filter_result):
@@ -120,7 +124,7 @@ class StructuredPAPILLON(dspy.Module):
             "style_constraints": self._clean_text(getattr(structured_plan, "style_constraints", "")),
         }
 
-    def _execute(self, user_query, preview, cloud_prompt):
+    def _execute(self, user_query, preview, cloud_prompt, start_time):
         route = preview["route"]
         remote_prompt = user_query if route == "direct" else cloud_prompt
         response = self.untrusted_model(remote_prompt)[0]
@@ -131,6 +135,7 @@ class StructuredPAPILLON(dspy.Module):
                 userQuery=user_query,
                 modelExampleResponses=response,
             ).finalOutput
+        latency = time.perf_counter() - start_time
 
         return dspy.Prediction(
             prompt=remote_prompt,
@@ -145,6 +150,7 @@ class StructuredPAPILLON(dspy.Module):
             detector_available=preview["detector_available"],
             detector_uncertain=preview["detector_uncertain"],
             route_reason=preview["route_reason"],
+            latency=latency
         )
 
     @staticmethod

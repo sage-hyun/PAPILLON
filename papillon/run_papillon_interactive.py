@@ -9,6 +9,11 @@ from run_dspy_optimization_llama import str_to_bool
 LOCAL_LM_API_KEY = "local-openai-compatible-key"
 LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
 
+### ignore warning
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--port", type=int, help="The port where you are hosting your local model")
@@ -45,7 +50,7 @@ if __name__ == "__main__":
     )
 
     if args.prompt_file:
-        priv_prompt.load(args.prompt_file, use_legacy_loading=True)
+        priv_prompt.load(args.prompt_file)
 
     while True:
         user_query = input("Your Query > ")
