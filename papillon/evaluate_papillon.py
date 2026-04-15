@@ -10,7 +10,7 @@ from dspy import Example
 
 from dspy_compat import build_local_lm, build_openai_lm
 from pipeline_factory import build_pipeline
-from prompt_paths import parse_model_prompt
+from prompt_paths import parse_model_prompt, load_prompt_with_pipeline_compat
 from run_dspy_optimization_llama import metric_finegrained, str_to_bool
 
 
@@ -57,10 +57,10 @@ if __name__ == "__main__":
 
     resolved_prompt_file = args.prompt_file
     if resolved_prompt_file == "ORIGINAL":
-        resolved_prompt_file = parse_model_prompt(args.model_name) if args.pipeline == "legacy" else None
+        resolved_prompt_file = parse_model_prompt(args.model_name)
 
     if resolved_prompt_file:
-        pipeline.load(resolved_prompt_file)
+        load_prompt_with_pipeline_compat(pipeline, resolved_prompt_file)
 
     rows = []
     qual_scores = []

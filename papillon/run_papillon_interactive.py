@@ -3,7 +3,7 @@ import os
 import dspy
 from dspy_compat import build_local_lm, build_openai_lm
 from pipeline_factory import build_pipeline
-from prompt_paths import parse_model_prompt
+from prompt_paths import parse_model_prompt, load_prompt_with_pipeline_compat
 from run_dspy_optimization_llama import str_to_bool
 
 LOCAL_LM_API_KEY = "local-openai-compatible-key"
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.prompt_file == "ORIGINAL":
-        args.prompt_file = parse_model_prompt(args.model_name) if args.pipeline == "legacy" else None
+        args.prompt_file = parse_model_prompt(args.model_name)
     
     local_lm = build_local_lm(
         args.model_name,
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     )
 
     if args.prompt_file:
-        priv_prompt.load(args.prompt_file)
+        load_prompt_with_pipeline_compat(priv_prompt, args.prompt_file)
 
     while True:
         user_query = input("Your Query > ")
