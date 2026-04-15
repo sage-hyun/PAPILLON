@@ -1,5 +1,5 @@
 import dspy
-
+import time
 
 import os; os.environ['LITELLM_LOG'] = 'ERROR'
 
@@ -28,11 +28,15 @@ class PAPILLON(dspy.Module):
         self.untrusted_model = untrusted_model
 
     def forward(self, user_query):
+        start_time = time.perf_counter()
         try:
             prompt = self.prompt_creater(userQuery=user_query).createdPrompt
             response = self.untrusted_model(prompt)[0]
             output = self.info_aggregator(userQuery=user_query, modelExampleResponses=response)
-        except Exception:
-            return dspy.Prediction(prompt="", output="", gptResponse="")
+            end_time = time.perf_counter() 
+            latency = end_time - start_time
+        except Exception as e:
+            print(f"{e}")
+            return dspy.Prediction(prompt="", output="", gptResponse="", latency=0.0)
 
-        return dspy.Prediction(prompt=prompt, output=output.finalOutput, gptResponse=response)
+        return dspy.Prediction(prompt=prompt, output=output.finalOutput, gptResponse=response, latency=latency)

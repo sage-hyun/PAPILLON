@@ -6,7 +6,6 @@ from pathlib import Path
 
 client = openai.OpenAI(api_key="<YOUR_OPENAI_API_KEY>")
 
-
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "extract_privacy_span.txt"
 prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
 

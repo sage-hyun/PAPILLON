@@ -1,32 +1,26 @@
-import pandas
-from run_dspy_optimization_llama import metric_finegrained
-from dspy import Example
-import dspy
-import tqdm
-import litellm
+import json
 from argparse import ArgumentParser
-from run_llama_dspy import PAPILLON
+import os
 
-def parse_model_prompt(model_name):
-    model_name = model_name.lower()
-    if "llama" in model_name:
-        if "1b-instruct" in model_name:
-            return "optimized_prompts/llama_32_1b_instruct_prompt.json"
-        elif "3b-instruct" in model_name:
-            return "optimized_prompts/llama_32_3b_instruct_prompt.json"
-        elif "8b-instruct" in model_name:
-            if "3.1" in model_name:
-                return "optimized_prompts/llama_31_8b_instruct_prompt.json"
-            else:
-                return "optimized_prompts/llama_3_8b_instruct_prompt.json"
-    elif "mistral" in model_name:
-        if "small" in model_name:
-            return "optimized_prompts/mistral_small_prompt.json"
-        elif "7b" in model_name:
-            return "optimized_prompts/mistral_7b_instruct_prompt.json"
-    raise NotImplementedError("Model currently not supported! You will have to optimize it yourself!")
+import dspy
+import litellm
+import pandas
+import tqdm
+from dspy import Example
 
-    
+from dspy_compat import build_local_lm, build_openai_lm
+from pipeline_factory import build_pipeline
+from prompt_paths import parse_model_prompt
+from run_dspy_optimization_llama import metric_finegrained, str_to_bool
+
+
+LOCAL_LM_API_KEY = "local-openai-compatible-key"
+LOCAL_LM_API_HOST = os.getenv("PAPILLON_LOCAL_LM_HOST", "127.0.0.1")
+
+
+def safe_average(values):
+    return sum(values) / len(values) if values else 0.0
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -36,62 +30,84 @@ if __name__ == "__main__":
     parser.add_argument("--prompt_file", type=str, default="ORIGINAL", help="The DSPy-optimized prompt, stored as a json file")
     parser.add_argument("--model_name", type=str, help="The Huggingface identifier / name for your local LM")
     parser.add_argument("--output_file_name", type=str, default="output.csv")
+    parser.add_argument("--pipeline", type=str, choices=["legacy", "structured_v1"], default="legacy")
+    parser.add_argument("--allow_direct_bypass", type=str_to_bool, default=True)
+    parser.add_argument("--privacy_filter", type=str, default="regex_presidio")
+    parser.add_argument("--pii_score_threshold", type=float, default=0.5)
     args = parser.parse_args()
-    
-    data_file = pandas.read_csv(args.data_file)
+
+    data_frame = pandas.read_csv(args.data_file)
+    local_lm = build_local_lm(
+        args.model_name,
+        host=LOCAL_LM_API_HOST,
+        port=args.port,
+        api_key=LOCAL_LM_API_KEY,
+        max_tokens=4000,
+    )
+    dspy.configure(lm=local_lm)
+    openai_lm = build_openai_lm(args.openai_model, max_tokens=4000)
+
+    pipeline = build_pipeline(
+        pipeline_name=args.pipeline,
+        untrusted_model=openai_lm,
+        allow_direct_bypass=args.allow_direct_bypass,
+        privacy_filter_name=args.privacy_filter,
+        pii_score_threshold=args.pii_score_threshold,
+    )
+
+    resolved_prompt_file = args.prompt_file
+    if resolved_prompt_file == "ORIGINAL":
+        resolved_prompt_file = parse_model_prompt(args.model_name) if args.pipeline == "legacy" else None
+
+    if resolved_prompt_file:
+        pipeline.load(resolved_prompt_file)
+
+    rows = []
     qual_scores = []
     leak_scores = []
-    all_user_queries = []
-    target = []
-    new_completion = []
-    new_prompt = []
-    all_pii = []
 
-    local_lm = dspy.LM(f'openai/{args.model_name}', api_base=f"http://0.0.0.0:{args.port}/v1", api_key="", max_tokens=4000)
-    dspy.configure(lm=local_lm)
-
-    openai_lm = dspy.OpenAI(model=args.openai_model, max_tokens=4000)
-    
-    priv_prompt = PAPILLON(openai_lm)
-    
-
-    if args.prompt_file == "ORIGINAL":
-        args.prompt_file = parse_model_prompt(args.model_name)
-    
-    priv_prompt.load(args.prompt_file, use_legacy_loading=True)
-
-    
-    for i, row in tqdm.tqdm(data_file.iterrows()):
-        gold = Example({"target_response": row["target_response"],
-                        "user_query": row["user_query"],
-                        "pii_str": row["pii_units"]}).with_inputs("user_query")
+    for _, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
+        gold = Example(
+            {
+                "target_response": row["target_response"],
+                "user_query": row["user_query"],
+                "pii_str": row["pii_units"],
+            }
+        ).with_inputs("user_query")
         try:
-            pred = priv_prompt(row["user_query"])
+            pred = pipeline(row["user_query"])
         except litellm.exceptions.BadRequestError:
             continue
-        if row["target_response"] is not None and isinstance(row["target_response"], str) and isinstance(row["pii_units"], str):
-            qual, leak = metric_finegrained(gold, pred, openai_lm)
-            print(qual, leak)
-            
-            if qual != -1 and leak != -1:
-                qual_scores.append(qual)
-                all_user_queries.append(row["user_query"])
-                leak_scores.append(leak)
-                target.append(row["target_response"])
-                new_completion.append(pred.output)
-                new_prompt.append(pred.prompt)
-                all_pii.append(row["pii_units"])
-            result_df = pandas.DataFrame()
-            result_df["quals"] = qual_scores
-            result_df["leaks"] = leak_scores
-            result_df["queries"] = all_user_queries
-            result_df["targets"] = target
-            result_df["papillon_completion"] = new_completion
-            result_df["papillon_prompt"] = new_prompt
-            result_df["pii_str"] = all_pii 
-            result_df.to_csv(args.output_file_name)
-    
-    print("AVERAGE QUALITY SCORE", sum(qual_scores) / len(qual_scores))
-    print("AVERAGE LEAKAGE SCORE", sum(leak_scores) / len(leak_scores))
+
+        if not isinstance(row["target_response"], str):
+            continue
+
+        metrics = metric_finegrained(gold, pred, openai_lm)
+        if metrics["quality"] != -1 and metrics["leakage"] != -1:
+            qual_scores.append(metrics["quality"])
+            leak_scores.append(metrics["leakage"])
+
+        rows.append(
+            {
+                "quals": metrics["quality"],
+                "leaks": metrics["leakage"],
+                "exposed_token_count": metrics["exposed_token_count"],
+                "entity_retention_rate": metrics["entity_retention_rate"],
+                "schema_valid": metrics["schema_valid"],
+                "latency": metrics["latency"],
+                "route": metrics["route"],
+                "queries": row["user_query"],
+                "targets": row["target_response"],
+                "papillon_completion": getattr(pred, "output", ""),
+                "papillon_prompt": getattr(pred, "cloud_prompt", getattr(pred, "prompt", "")),
+                "pii_str": row["pii_units"],
+                "structured_fields_json": json.dumps(getattr(pred, "structured_fields", {})),
+                "detected_pii_json": json.dumps(getattr(pred, "detected_pii", [])),
+            }
+        )
+
+        pandas.DataFrame(rows).to_csv(args.output_file_name, index=False)
+
+    print("AVERAGE QUALITY SCORE", safe_average(qual_scores))
+    print("AVERAGE LEAKAGE SCORE", safe_average(leak_scores))
     print("==============")
-    
