@@ -29,35 +29,30 @@ def parse_model_prompt(model_name):
 
 
 def load_prompt_with_pipeline_compat(pipeline, prompt_file):
-    """Load only prompt blocks that exist on the current pipeline object."""
-    if not prompt_file:
+    if not prompt_file or not os.path.exists(prompt_file):
+        print(f"Prompt file not found: {prompt_file}")
         return
 
     try:
         with open(prompt_file, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except Exception:
-        pipeline.load(prompt_file)
+    except Exception as e:
+        print(f"Failed to parse JSON: {e}")
         return
 
-    if not isinstance(payload, dict):
-        pipeline.load(prompt_file)
-        return
+    pipeline_params = dict(pipeline.named_parameters())
+    
+    loaded_keys = []
+    skipped_keys = []
 
-    filtered_payload = {k: v for k, v in payload.items() if hasattr(pipeline, k)}
-    if not filtered_payload:
-        return
+    for name, param in pipeline_params.items():
+        if name in payload:
+            param.load_state(payload[name], use_legacy_loading=True)
+            loaded_keys.append(name)
+        else:
+            skipped_keys.append(name)
 
-    if len(filtered_payload) == len(payload):
-        pipeline.load(prompt_file)
-        return
-
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tf:
-            json.dump(filtered_payload, tf, ensure_ascii=False, indent=2)
-            temp_path = tf.name
-        pipeline.load(temp_path)
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+    if loaded_keys:
+        print(f"Partially loaded from {os.path.basename(prompt_file)}: {loaded_keys}")
+    if skipped_keys:
+        print(f"Skipped (not in JSON): {skipped_keys}")
