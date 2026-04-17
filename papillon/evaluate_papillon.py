@@ -65,6 +65,10 @@ if __name__ == "__main__":
     rows = []
     qual_scores = []
     leak_scores = []
+    wpl_scores = []   
+    etc_scores = []   
+    err_scores = []     
+    latency_scores = []
 
     for _, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
         gold = Example(
@@ -89,21 +93,25 @@ if __name__ == "__main__":
         if metrics["quality"] != -1 and metrics["leakage"] != -1:
             qual_scores.append(metrics["quality"])
             leak_scores.append(metrics["leakage"])
+            wpl_scores.append(metrics.get("weighted_leakage", metrics["leakage"]))
+            etc_scores.append(metrics["exposed_token_count"])
+            err_scores.append(metrics["entity_retention_rate"])
+            latency_scores.append(metrics["latency"])
 
         rows.append(
             {
                 "quals": metrics["quality"],
                 "leaks": metrics["leakage"],
                 "weighted_leakage": metrics.get("weighted_leakage", metrics["leakage"]),
-                "leakage_l1_ratio": metrics.get("leakage_l1_ratio", 0.0),
-                "leakage_l2_ratio": metrics.get("leakage_l2_ratio", 0.0),
-                "leakage_l3_ratio": metrics.get("leakage_l3_ratio", 0.0),
-                "leaked_l1": metrics.get("leaked_l1", 0),
-                "total_l1": metrics.get("total_l1", 0),
-                "leaked_l2": metrics.get("leaked_l2", 0),
-                "total_l2": metrics.get("total_l2", 0),
-                "leaked_l3": metrics.get("leaked_l3", 0),
-                "total_l3": metrics.get("total_l3", 0),
+                #"leakage_l1_ratio": metrics.get("leakage_l1_ratio", 0.0),
+                #"leakage_l2_ratio": metrics.get("leakage_l2_ratio", 0.0),
+                #"leakage_l3_ratio": metrics.get("leakage_l3_ratio", 0.0),
+                #"leaked_l1": metrics.get("leaked_l1", 0),
+                #"total_l1": metrics.get("total_l1", 0),
+                #"leaked_l2": metrics.get("leaked_l2", 0),
+                #"total_l2": metrics.get("total_l2", 0),
+                #"leaked_l3": metrics.get("leaked_l3", 0),
+                #"total_l3": metrics.get("total_l3", 0),
                 "exposed_token_count": metrics["exposed_token_count"],
                 "entity_retention_rate": metrics["entity_retention_rate"],
                 "schema_valid": metrics["schema_valid"],
@@ -117,13 +125,17 @@ if __name__ == "__main__":
                 "l1_units": l1_str,
                 "l2_units": l2_str,
                 "l3_terms": l3_str,
-                "structured_fields_json": json.dumps(getattr(pred, "structured_fields", {})),
-                "detected_pii_json": json.dumps(getattr(pred, "detected_pii", [])),
+                #"structured_fields_json": json.dumps(getattr(pred, "structured_fields", {})),
+                #"detected_pii_json": json.dumps(getattr(pred, "detected_pii", [])),
             }
         )
 
         pandas.DataFrame(rows).to_csv(args.output_file_name, index=False)
 
-    print("AVERAGE QUALITY SCORE", safe_average(qual_scores))
-    print("AVERAGE LEAKAGE SCORE", safe_average(leak_scores))
+    print("AVERAGE QUALITY SCORE:", safe_average(qual_scores))
+    print("AVERAGE LEAKAGE SCORE:", safe_average(leak_scores))
+    print("AVERAGE WPL SCORE    :", safe_average(wpl_scores))
+    print("AVERAGE ETC SCORE    :", safe_average(etc_scores))
+    print("AVERAGE ERR SCORE    :", safe_average(err_scores))
+    print("AVERAGE LATENCY      :", safe_average(latency_scores))
     print("==============")
