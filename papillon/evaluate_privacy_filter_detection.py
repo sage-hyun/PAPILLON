@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+import os
 import re
 
 import pandas
@@ -48,24 +49,31 @@ def unit_match(gt_unit, pred_unit):
     if gt_alnum and pred_alnum and gt_alnum == pred_alnum:
         return True
 
-    # Allow containment for partially detected spans (e.g., "johnny bay" vs "johnny").
-    # Guard very short strings to reduce accidental matches.
     shorter_len = min(len(gt_norm), len(pred_norm))
     if shorter_len >= 4 and (gt_norm in pred_norm or pred_norm in gt_norm):
         return True
     return False
 
 
-def unique_predicted_units(entities):
+def unique_predicted_entities(entities):
     seen = set()
-    units = []
+    output = []
     for entity in entities:
-        text = normalize_text(getattr(entity, "text", ""))
+        raw_text = (getattr(entity, "text", "") or "").strip()
+        text = normalize_text(raw_text)
         if not text or text in seen:
             continue
         seen.add(text)
-        units.append(text)
-    return units
+        output.append(
+            {
+                "text": text,
+                "raw_text": raw_text,
+                "entity_type": getattr(entity, "entity_type", ""),
+                "source": getattr(entity, "source", ""),
+                "score": getattr(entity, "score", ""),
+            }
+        )
+    return output
 
 
 def safe_div(numerator, denominator):
@@ -74,12 +82,17 @@ def safe_div(numerator, denominator):
     return numerator / denominator
 
 
+def join_units(units):
+    return "||".join(units)
+
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--dataset_file", type=str, required=True)
     parser.add_argument("--text_column", type=str, default="user_query")
     parser.add_argument("--pii_column", type=str, default="pii_units")
     parser.add_argument("--pii_score_threshold", type=float, default=0.5)
+    parser.add_argument("--output_csv", type=str, default=None)
     args = parser.parse_args()
 
     data_frame = pandas.read_csv(args.dataset_file)
@@ -95,11 +108,40 @@ if __name__ == "__main__":
     rows_with_gt_pii = 0
     rows_without_gt_pii = 0
 
-    for _, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
+    # Row-level binary confusion (PII exists in row or not)
+    row_level_tp = 0
+    row_level_fp = 0
+    row_level_fn = 0
+    row_level_tn = 0
+
+    row_records = []
+
+    for row_idx, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
         query = row.get(args.text_column, "")
-        gt_units = [normalize_text(u) for u in parse_pii_units(row.get(args.pii_column))]
-        result = privacy_filter.analyze(query if isinstance(query, str) else "")
-        pred_units = unique_predicted_units(result.entities)
+        query_text = query if isinstance(query, str) else ""
+
+        gt_units_raw = parse_pii_units(row.get(args.pii_column))
+        gt_units = [normalize_text(u) for u in gt_units_raw]
+
+        result = privacy_filter.analyze(query_text)
+        pred_entities = unique_predicted_entities(result.entities)
+        pred_units = [entity["text"] for entity in pred_entities]
+        pred_units_raw = [entity["raw_text"] for entity in pred_entities]
+
+        gt_has_pii = len(gt_units) > 0
+        pred_has_pii = len(pred_units) > 0
+        if gt_has_pii and pred_has_pii:
+            row_level_case = "TP"
+            row_level_tp += 1
+        elif (not gt_has_pii) and pred_has_pii:
+            row_level_case = "FP"
+            row_level_fp += 1
+        elif gt_has_pii and (not pred_has_pii):
+            row_level_case = "FN"
+            row_level_fn += 1
+        else:
+            row_level_case = "TN"
+            row_level_tn += 1
 
         if gt_units:
             rows_with_gt_pii += 1
@@ -111,6 +153,7 @@ if __name__ == "__main__":
 
         matched_gt = set()
         matched_pred = set()
+        matched_pairs = {}
 
         for gt_idx, gt_unit in enumerate(gt_units):
             for pred_idx, pred_unit in enumerate(pred_units):
@@ -119,6 +162,7 @@ if __name__ == "__main__":
                 if unit_match(gt_unit, pred_unit):
                     matched_gt.add(gt_idx)
                     matched_pred.add(pred_idx)
+                    matched_pairs[gt_idx] = pred_idx
                     break
 
         row_tp = len(matched_gt)
@@ -134,11 +178,68 @@ if __name__ == "__main__":
         if row_fn > 0:
             rows_with_fn += 1
 
+        row_tp_units = [gt_units_raw[i] for i in sorted(matched_gt)]
+        row_fn_units = [gt_units_raw[i] for i in range(len(gt_units_raw)) if i not in matched_gt]
+        row_fp_units = [pred_units_raw[i] for i in range(len(pred_units_raw)) if i not in matched_pred]
+        matched_pred_units = [pred_units_raw[matched_pairs[i]] for i in sorted(matched_pairs.keys())]
+
+        row_records.append(
+            {
+                "row_index": row_idx,
+                "conversation_hash": row.get("conversation_hash", ""),
+                "user_query": query_text,
+                "gt_has_pii": gt_has_pii,
+                "pred_has_pii": pred_has_pii,
+                "row_level_case": row_level_case,
+                "gt_units": join_units(gt_units_raw),
+                "pred_units": join_units(pred_units_raw),
+                "tp_units": join_units(row_tp_units),
+                "matched_pred_units": join_units(matched_pred_units),
+                "fn_units": join_units(row_fn_units),
+                "fp_units": join_units(row_fp_units),
+                "tp_count": row_tp,
+                "fp_count": row_fp,
+                "fn_count": row_fn,
+                "detector_available": result.detector_available,
+                "detector_uncertain": result.uncertain,
+                "detector_error": result.error or "",
+            }
+        )
+
     precision = safe_div(tp, tp + fp)
     recall = safe_div(tp, tp + fn)
     f1 = safe_div(2 * precision * recall, precision + recall)
     fp_per_row = safe_div(fp, len(data_frame))
     fn_per_gt_row = safe_div(rows_with_fn, rows_with_gt_pii)
+
+    row_precision = safe_div(row_level_tp, row_level_tp + row_level_fp)
+    row_recall = safe_div(row_level_tp, row_level_tp + row_level_fn)
+    row_f1 = safe_div(2 * row_precision * row_recall, row_precision + row_recall)
+    row_accuracy = safe_div(row_level_tp + row_level_tn, len(data_frame))
+
+    base_path = os.path.splitext(args.dataset_file)[0]
+    output_csv = args.output_csv or f"{base_path}_privacy_filter_eval.csv"
+    row_columns = [
+        "row_index",
+        "conversation_hash",
+        "user_query",
+        "gt_has_pii",
+        "pred_has_pii",
+        "row_level_case",
+        "gt_units",
+        "pred_units",
+        "tp_units",
+        "matched_pred_units",
+        "fn_units",
+        "fp_units",
+        "tp_count",
+        "fp_count",
+        "fn_count",
+        "detector_available",
+        "detector_uncertain",
+        "detector_error",
+    ]
+    pandas.DataFrame(row_records, columns=row_columns).to_csv(output_csv, index=False)
 
     print("===== Privacy Filter Unit-Level Detection =====")
     print(f"dataset_file            : {args.dataset_file}")
@@ -159,3 +260,15 @@ if __name__ == "__main__":
     print(f"rows_with_fp            : {rows_with_fp}")
     print(f"rows_with_fn            : {rows_with_fn}")
     print(f"fn_row_rate_on_gt_pii   : {fn_per_gt_row:.6f}")
+    print("-----")
+    print("===== Row-Level PII Presence Confusion =====")
+    print(f"row_tp                  : {row_level_tp}")
+    print(f"row_fp                  : {row_level_fp}")
+    print(f"row_fn                  : {row_level_fn}")
+    print(f"row_tn                  : {row_level_tn}")
+    print(f"row_precision           : {row_precision:.6f}")
+    print(f"row_recall              : {row_recall:.6f}")
+    print(f"row_f1                  : {row_f1:.6f}")
+    print(f"row_accuracy            : {row_accuracy:.6f}")
+    print("-----")
+    print(f"output_csv              : {output_csv}")
