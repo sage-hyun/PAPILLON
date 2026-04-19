@@ -17,8 +17,8 @@ REGEX_PATTERNS = {
         r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:19|20)\d{2}|"
         r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4})\b",
         re.IGNORECASE,
-    ),
-    "ID_LIKE": re.compile(r"\b(?=[A-Z0-9-]{6,}\b)(?=.*\d)(?=.*[A-Z])[A-Z0-9-]+\b", re.IGNORECASE),
+    )
+    #"ID_LIKE": re.compile(r"\b(?=[A-Z0-9-]{6,}\b)(?=.*\d)(?=.*[A-Z])[A-Z0-9-]+\b", re.IGNORECASE),
 }
 
 PRESIDIO_ENTITY_TYPES = (
@@ -47,11 +47,11 @@ class PrivacyFilter:
 
     def analyze(self, text: str) -> PrivacyFilterResult:
         query = text or ""
-        regex_entities = self._detect_with_regex(query)
+        # regex_entities = self._detect_with_regex(query)
         analyzer = self._ensure_analyzer()
         detector_available = analyzer is not None
         uncertain = not detector_available
-        high_confidence_entities: List[DetectedEntity] = list(regex_entities)
+        high_confidence_entities: List[DetectedEntity] = []
         low_confidence_entities: List[DetectedEntity] = []
         error_message = self._analyzer_error
 
@@ -66,6 +66,9 @@ class PrivacyFilter:
                 error_message = f"{type(exc).__name__}: {exc}"
                 self._analyzer = None
                 self._analyzer_error = error_message
+
+        if not detector_available:
+            high_confidence_entities = self._detect_with_regex(query)
 
         merged_entities = self._merge_entities(query, high_confidence_entities)
         redacted_query, placeholder_map = self._redact_text(query, merged_entities)
