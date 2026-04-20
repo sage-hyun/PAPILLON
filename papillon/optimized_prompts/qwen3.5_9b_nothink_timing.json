@@ -1,0 +1,15 @@
+{
+  "model_name": "qwen3.5:9b-nothink",
+  "openai_model": "gpt-4o-mini",
+  "train_examples": 30,
+  "validation_examples": 20,
+  "num_batches": 100,
+  "num_candidates": 10,
+  "num_threads": 10,
+  "max_tokens": 4000,
+  "before_optimization_seconds": 311.75501040602103,
+  "compile_seconds": 55563.0519371659,
+  "save_prompt_seconds": 0.0008763240184634924,
+  "after_optimization_seconds": 204.15602968703024,
+  "total_seconds": 56078.982517959084
+}

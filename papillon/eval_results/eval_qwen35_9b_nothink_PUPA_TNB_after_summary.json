@@ -1,0 +1,25 @@
+{
+  "model_name": "qwen3.5:9b-nothink",
+  "openai_model": "gpt-4o-mini",
+  "data_file": "../pupa/PUPA_TNB.csv",
+  "prompt_file": "optimized_prompts/qwen3.5_9b_nothink.json",
+  "total_rows": 237,
+  "evaluated_rows": 237,
+  "pipeline_failures": 0,
+  "judge_failures": 0,
+  "skipped_invalid_gold": 0,
+  "avg_quality": 0.9282700421940928,
+  "avg_leakage": 0.14147431124348475,
+  "total_wall_time_sec": 2609.66,
+  "prompt_creator_instruction": "You are a helpful assistant that is very mindful of user privacy. You have access to a powerful large language model that you can query. Given a user request, create a prompt for your large language model that preserves user privacy, so that this model can help you complete the user request. Provide the prompt directly without any preamble. DO NOT COMPLETE THE USER QUERY, ONLY GENERATE A PROMPT.",
+  "info_aggregator_instruction": "Generate a polished and professional cover letter or CV revision based on the provided user query. Ensure to maintain a clear structure, use formal language, and incorporate necessary details relevant to the position or context mentioned by the user. Highlight key skills, experiences, and achievements, while ensuring the tone is appropriate and consistent with professional standards. \n\nFor CV revisions, focus on enhancing bullet points for clarity and impact, using quantifiable achievements where possible. For cover letters, ensure to demonstrate enthusiasm for the role, align skills with job requirements, and provide a memorable closing statement. \n\nAlways prioritize maintaining user privacy and confidentiality throughout the process.",
+  "timing": {
+    "mean_per_row_sec": 108.47,
+    "median_per_row_sec": 103.07,
+    "std_per_row_sec": 31.78,
+    "stage1_local_prompt_mean_sec": 41.895,
+    "stage2a_cloud_mean_sec": 6.325,
+    "stage2b_local_agg_mean_sec": 48.962,
+    "judge_mean_sec": 11.517
+  }
+}

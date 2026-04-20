@@ -1,0 +1,25 @@
+{
+  "model_name": "gemma3:4b",
+  "openai_model": "gpt-4o-mini",
+  "data_file": "../pupa/PUPA_TNB.csv",
+  "total_rows": 237,
+  "evaluated_rows": 235,
+  "priv_prompt_failures": 0,
+  "metric_finegrained_failures": 0,
+  "avg_quality": 0.6723404255319149,
+  "avg_leakage": 0.20479462270451004,
+  "total_wall_time_sec": 5483.6,
+  "timing": {
+    "mean_per_row_sec": 23.21,
+    "median_per_row_sec": 19.96,
+    "std_per_row_sec": 16.97,
+    "stage1_local_prompt_mean_sec": 2.469,
+    "stage1_local_prompt_median_sec": 1.51,
+    "stage2a_cloud_mean_sec": 7.124,
+    "stage2a_cloud_median_sec": 6.549,
+    "stage2b_local_agg_mean_sec": 3.761,
+    "stage2b_local_agg_median_sec": 1.65,
+    "judge_mean_sec": 9.853,
+    "judge_median_sec": 8.513
+  }
+}

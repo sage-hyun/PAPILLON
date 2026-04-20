@@ -1,0 +1,25 @@
+{
+  "model_name": "llama3.1:8b-instruct-fp16",
+  "openai_model": "gpt-4o-mini",
+  "data_file": "../pupa/PUPA_TNB.csv",
+  "total_rows": 237,
+  "evaluated_rows": 236,
+  "priv_prompt_failures": 0,
+  "metric_finegrained_failures": 0,
+  "avg_quality": 0.7669491525423728,
+  "avg_leakage": 0.29293119918743055,
+  "total_wall_time_sec": 6656.4,
+  "timing": {
+    "mean_per_row_sec": 28.16,
+    "median_per_row_sec": 24.82,
+    "std_per_row_sec": 13.72,
+    "stage1_local_prompt_mean_sec": 3.116,
+    "stage1_local_prompt_median_sec": 2.551,
+    "stage2a_cloud_mean_sec": 6.899,
+    "stage2a_cloud_median_sec": 6.081,
+    "stage2b_local_agg_mean_sec": 6.603,
+    "stage2b_local_agg_median_sec": 4.662,
+    "judge_mean_sec": 11.545,
+    "judge_median_sec": 10.064
+  }
+}
