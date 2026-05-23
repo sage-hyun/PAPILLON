@@ -17,18 +17,29 @@ REGEX_PATTERNS = {
         r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:19|20)\d{2}|"
         r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4})\b",
         re.IGNORECASE,
-    )
-    #"ID_LIKE": re.compile(r"\b(?=[A-Z0-9-]{6,}\b)(?=.*\d)(?=.*[A-Z])[A-Z0-9-]+\b", re.IGNORECASE),
+    ),
+    "BENCHMARK_TAG": re.compile(
+        r"(?:<)?presidio_anonymized_[a-z_]+(?:>)?",
+        re.IGNORECASE
+    ),
+    "USER_FILE_PATH": re.compile(
+        r"(?:[a-zA-Z]:\\Users\\[^\s\"'\\]+|/home/[^\s\"'\\]+|/Users/[^\s\"'\\]+)", 
+        re.IGNORECASE
+    ),
+    # "ID_LIKE": re.compile(r"\b(?=[A-Z0-9-]{6,}\b)(?=.*\d)(?=.*[A-Z])[A-Z0-9-]+\b", re.IGNORECASE),
 }
 
 PRESIDIO_ENTITY_TYPES = (
     "PERSON",
     "LOCATION",
     "ORGANIZATION",
-    "EMAIL_ADDRESS",
-    "PHONE_NUMBER",
-    "URL",
-    "DATE_TIME",
+    "IP_ADDRESS",
+    "CREDIT_CARD",
+    "CRYPTO",
+    # "EMAIL_ADDRESS",  # Covered by custom REGEX_PATTERNS
+    # "PHONE_NUMBER",   # Covered by custom REGEX_PATTERNS
+    # "URL",            # Covered by custom REGEX_PATTERNS
+    # "DATE_TIME",      # Covered by custom REGEX_PATTERNS
 )
 
 
@@ -38,8 +49,10 @@ class PrivacyFilter:
         score_threshold: float = 0.5,
         analyzer=None,
         analyzer_factory: Optional[Callable[[], object]] = None,
+        model_name: str = "en_core_web_lg",
     ):
         self.score_threshold = score_threshold
+        self.model_name = model_name
         self._analyzer = analyzer
         self._analyzer_factory = analyzer_factory or self._default_analyzer_factory
         self._analyzer_attempted = analyzer is not None
@@ -47,11 +60,11 @@ class PrivacyFilter:
 
     def analyze(self, text: str) -> PrivacyFilterResult:
         query = text or ""
-        # regex_entities = self._detect_with_regex(query)
+        regex_entities = self._detect_with_regex(query)
         analyzer = self._ensure_analyzer()
         detector_available = analyzer is not None
         uncertain = not detector_available
-        high_confidence_entities: List[DetectedEntity] = []
+        high_confidence_entities: List[DetectedEntity] = list(regex_entities)
         low_confidence_entities: List[DetectedEntity] = []
         error_message = self._analyzer_error
 
@@ -61,11 +74,17 @@ class PrivacyFilter:
                 high_confidence_entities.extend(analyzer_entities)
                 uncertain = bool(low_confidence_entities)
             except Exception as exc:
+                # We do NOT set self._analyzer = None to avoid disabling it for subsequent queries.
+                # Instead, we mark detector_available = False for this query, record the error,
+                # and fall back to regex entities for this specific query.
                 detector_available = False
                 uncertain = True
-                error_message = f"{type(exc).__name__}: {exc}"
-                self._analyzer = None
-                self._analyzer_error = error_message
+                error_message = f"RuntimeError during Presidio detection: {type(exc).__name__}: {exc}"
+                
+                # Fetch regex entities since Presidio failed
+                regex_entities = self._detect_with_regex(query)
+                high_confidence_entities = list(regex_entities)
+                low_confidence_entities = []
 
         if not detector_available:
             high_confidence_entities = self._detect_with_regex(query)
@@ -92,9 +111,34 @@ class PrivacyFilter:
         try:
             self._analyzer = self._analyzer_factory()
             self._analyzer_error = None
+        except ImportError as imp_err:
+            # Let ImportError propagate and terminate immediately at startup if packages are missing
+            raise ImportError(
+                f"Presidio analyzer packages are not installed: {imp_err}. "
+                "Please run 'pip install presidio-analyzer spacy' before running."
+            ) from imp_err
         except Exception as exc:
-            self._analyzer = None
-            self._analyzer_error = f"{type(exc).__name__}: {exc}"
+            exc_str = str(exc)
+            # If the SpaCy model is missing, try self-healing download
+            if "Can't find model" in exc_str or "en_core_web" in exc_str:
+                print(f"\n[INFO] SpaCy model '{self.model_name}' not found. Attempting to download it automatically...")
+                try:
+                    import spacy
+                    spacy.cli.download(self.model_name)
+                    self._analyzer = self._analyzer_factory()
+                    self._analyzer_error = None
+                    print(f"[INFO] Successfully downloaded and loaded '{self.model_name}'!\n")
+                    return self._analyzer
+                except Exception as dl_exc:
+                    # Propagate OSError if automatic download fails
+                    raise OSError(
+                        f"SpaCy model '{self.model_name}' is missing and automatic download failed: {dl_exc}. "
+                        f"Please run 'python -m spacy download {self.model_name}' manually."
+                    ) from exc
+            else:
+                # Propagate any other startup exceptions
+                raise exc
+
         return self._analyzer
 
     def _default_analyzer_factory(self):
@@ -103,7 +147,7 @@ class PrivacyFilter:
 
         configuration = {
             "nlp_engine_name": "spacy",
-            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+            "models": [{"lang_code": "en", "model_name": self.model_name}],
         }
         provider = NlpEngineProvider(nlp_configuration=configuration)
         nlp_engine = provider.create_engine()

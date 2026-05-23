@@ -11,21 +11,24 @@ import openai
 
 
 L12_SYSTEM_PROMPT = """You are a privacy labeling assistant.
-Task: Categorize the provided PII units into two distinct buckets: L1 or L2.
+Task: Categorize the provided PII units into three distinct buckets based on their context in the query: L1, L2, or IGNORED.
 
 Definitions & Boundaries:
 - L1 (Direct Identifiers - Highest Sensitivity): Data that unambiguously identifies a specific individual on its own. 
   * Examples: Full names, email addresses, phone numbers, exact physical addresses, national/government IDs, financial account/card numbers, passwords/credentials, biometric data.
-- L2 (Quasi-Identifiers - High Sensitivity): Data that does not uniquely identify someone on its own, but defines their affiliations, locations, or broad profile. 
+- L2 (Quasi-Identifiers - High Sensitivity): Data that does not uniquely identify someone on its own, but defines their affiliations, locations, or broad profile in a way that links to a private individual. 
   * Examples: Partial names/aliases, school/university names, company/organization names, job titles, cities/regions, dates of birth.
+- IGNORED (Context-Dependent Non-PII): Public figures, landmarks, global brands, or public tools mentioned in a purely general, educational, or objective context that does not reveal private personal attributes of the user.
+  * Examples: "Google is a great search engine" -> Google is IGNORED.
+  * Examples: "I love Midjourney's styling" -> Midjourney is IGNORED.
+  * Examples: "Krzysztof Kieślowski directed Three Colors" -> Krzysztof Kieślowski is IGNORED.
 
-Rules:
-1) Mutual Exclusivity: Every provided unit must be placed in exactly one bucket (L1 or L2).
-2) Strict Preservation: Output the exact strings provided. Do not invent, alter, or translate the units.
-3) Tie-breaker: If a unit's classification is ambiguous between L1 and L2, default to L2.
+Boundary Rules (Context-Dependent):
+- Affiliation Context: If a company (e.g., Google, Microsoft) is used to describe a person's employer ("I work at Google"), classify it as L2. If it is mentioned as a general tool or subject ("Google's stock price went up"), classify it as IGNORED.
+- Public Figures: If a name refers to a famous public figure mentioned in an objective context ("Narendra Modi is the PM of India"), classify it as IGNORED. If a name refers to a private individual or a personal acquaintance, classify it as L1/L2.
 
 Output format (Strict JSON only):
-{"l1_units": ["..."], "l2_units": ["..."]}"""
+{"l1_units": ["..."], "l2_units": ["..."], "ignored_units": ["..."]}"""
 
 
 L3_SYSTEM_PROMPT = """You are a privacy labeling assistant.
@@ -181,10 +184,12 @@ class LLMLevelingClient:
         parsed = self._chat_json(L12_SYSTEM_PROMPT, user_prompt)
         l1_raw = safe_list_strings(parsed, "l1_units")
         l2_raw = safe_list_strings(parsed, "l2_units")
+        ignored_raw = safe_list_strings(parsed, "ignored_units")
 
         canonical = {u.lower(): u for u in pii_units}
         l1_set = {item.lower() for item in l1_raw}
         l2_set = {item.lower() for item in l2_raw}
+        ignored_set = {item.lower() for item in ignored_raw}
 
         l1: List[str] = []
         l2: List[str] = []
@@ -194,9 +199,13 @@ class LLMLevelingClient:
                 l1.append(canonical[low])
             elif low in l2_set and low in canonical:
                 l2.append(canonical[low])
+            elif low in ignored_set:
+                # Explicitly dropped by the LLM - ignored units are completely left out of the dataset.
+                continue
             else:
-                # Fallback only for malformed model output: keep unresolved units in L2.
-                l2.append(unit)
+                # Safe default: If the LLM completely misses or skips classification for a unit,
+                # we drop it (ignored) to prioritize utility and clean context.
+                continue
 
         l1 = dedupe_keep_order(l1)
         l2 = dedupe_keep_order(l2)
@@ -275,6 +284,11 @@ def create_leveling_dataset(
         if not reader.fieldnames:
             raise ValueError(f"No header found in {input_csv}")
         rows = list(reader)
+        # ==========================================
+        # [TESTING LIMIT] Limit to 10 rows for testing.
+        # Comment out the line below to run the FULL dataset.
+        # rows = rows[:10]
+        # ==========================================
         fieldnames = list(reader.fieldnames)
 
     for col in ("l1_units", "l2_units", "l3_terms"):
@@ -340,14 +354,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--api_key",
         type=str,
-        default=os.environ.get("OPENAI_API_KEY", ""),
-        help="API key (default: OPENAI_API_KEY)",
+        default=os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or "",
+        help="API key (default: OPENAI_API_KEY or OPENROUTER_API_KEY)",
     )
     parser.add_argument(
         "--base_url",
         type=str,
-        default=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        help="API base URL (default: OPENAI_BASE_URL or OpenAI API URL)",
+        default=os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
+        help="API base URL (default: OPENAI_BASE_URL or OpenRouter API URL)",
     )
     parser.add_argument(
         "--max_retries",
