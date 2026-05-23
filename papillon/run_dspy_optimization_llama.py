@@ -204,10 +204,10 @@ if __name__ == "__main__":
     eval_scores.update({"before_optimization": eval_score})
     print(eval_score)
     try:
-        teleprompter = MIPROv2(prompt_model=openai_lm, task_model=local_lm, metric=metric, num_candidates=10, init_temperature=1.0)
-        kwargs = dict(num_threads=8, display_progress=True, display_table=0)
-        compiled_prompt_opt = teleprompter.compile(zeroshot, trainset=train, num_batches=200, max_bootstrapped_demos=0, max_labeled_demos=0, eval_kwargs=kwargs)
-        eval_score = evaluate(compiled_prompt_opt, devset=val, **kwargs)
+        teleprompter = MIPROv2(prompt_model=openai_lm, task_model=local_lm, metric=metric, num_candidates=10, init_temperature=1.0, num_threads=8)
+        # kwargs = dict(num_threads=8, display_progress=True, display_table=0)
+        compiled_prompt_opt = teleprompter.compile(zeroshot, trainset=train, num_trials=200, max_bootstrapped_demos=0, max_labeled_demos=0)
+        eval_score = evaluate(compiled_prompt_opt, devset=val)
         print(eval_score)
         eval_scores.update({"after_optimization": eval_score})
 
