@@ -143,7 +143,7 @@ class PrivacyFilter:
 
     def _default_analyzer_factory(self):
         import spacy
-        spacy.prefer_gpu()
+        # spacy.prefer_gpu()
 
         from presidio_analyzer import AnalyzerEngine
         from presidio_analyzer.nlp_engine import NlpEngineProvider
