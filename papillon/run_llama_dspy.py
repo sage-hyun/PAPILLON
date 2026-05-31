@@ -30,13 +30,21 @@ class PAPILLON(dspy.Module):
     def forward(self, user_query):
         start_time = time.perf_counter()
         try:
-            prompt = self.prompt_creater(userQuery=user_query).createdPrompt
+            prompt_prediction = self.prompt_creater(userQuery=user_query)
+            prompt = getattr(prompt_prediction, "createdPrompt", "") or ""
             response = self.untrusted_model(prompt)[0]
-            output = self.info_aggregator(userQuery=user_query, modelExampleResponses=response)
+            output_prediction = self.info_aggregator(userQuery=user_query, modelExampleResponses=response)
+            final_output = getattr(output_prediction, "finalOutput", "") or ""
             end_time = time.perf_counter() 
             latency = end_time - start_time
         except Exception as e:
             print(f"{e}")
-            return dspy.Prediction(prompt="", output="", gptResponse="", latency=0.0)
+            return dspy.Prediction(prompt="", output="", gptResponse="", info_aggregator_output="", latency=0.0)
 
-        return dspy.Prediction(prompt=prompt, output=output.finalOutput, gptResponse=response, latency=latency)
+        return dspy.Prediction(
+            prompt=prompt,
+            output=final_output,
+            gptResponse=response,
+            info_aggregator_output=final_output,
+            latency=latency,
+        )

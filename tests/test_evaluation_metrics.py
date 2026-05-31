@@ -6,6 +6,7 @@ from papillon.evaluation_metrics import (
     parse_pii_units,
     parse_structured_prompt_sections,
     schema_valid,
+    weighted_leakage_from_level_counts,
 )
 
 
@@ -45,6 +46,17 @@ class EvaluationMetricTests(unittest.TestCase):
         self.assertTrue(schema_valid("protected", structured_fields, prompt))
         self.assertFalse(schema_valid("protected", structured_fields, "Write an email"))
         self.assertTrue(schema_valid("direct", {}, "Anything"))
+
+    def test_weighted_leakage_prioritizes_l1_over_l2_and_l3(self):
+        scores = weighted_leakage_from_level_counts(
+            leaked_l1=1,
+            total_l1=1,
+            leaked_l2=0,
+            total_l2=1,
+            leaked_l3=0,
+            total_l3=1,
+        )
+        self.assertGreater(scores["weighted_leakage"], 0.5)
 
 
 if __name__ == "__main__":

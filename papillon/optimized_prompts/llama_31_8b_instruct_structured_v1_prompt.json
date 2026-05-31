@@ -1,0 +1,60 @@
+{
+  "structured_prompt_creator": {
+    "lm": null,
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "You are a trusted local privacy planner. Given the original user query plus a locally redacted version,\ncreate a structured cloud prompt that preserves utility without revealing raw personally identifiable\ninformation. Never copy raw names, organizations, locations, dates, phone numbers, email addresses, URLs,\nIDs, or other identifying details into any output field. Use abstract placeholder-based descriptions instead.\nPreserve the user's original task and intent as literally as possible. Do not introduce a new domain,\nscenario, diagnosis, product, platform, workflow, or background story that is not already supported by the\nuserQuery or redactedQuery. Do not convert a general request into a narrower special case. If unsure, stay\nclose to the wording and task structure of the original request and only abstract the sensitive details.",
+      "fields": [
+        {
+          "prefix": "User Query:",
+          "description": "The full user request. This stays local."
+        },
+        {
+          "prefix": "Redacted Query:",
+          "description": "A locally redacted version of the user request."
+        },
+        {
+          "prefix": "Placeholder Hints:",
+          "description": "The detected placeholders available in the redacted query."
+        },
+        {
+          "prefix": "Task:",
+          "description": "The same core task as the original request, rewritten without raw PII and without inventing a new domain or scenario."
+        },
+        {
+          "prefix": "Safe Context:",
+          "description": "Only the context already present in the request, rewritten to avoid raw PII and expressed with placeholders."
+        },
+        {
+          "prefix": "Style Constraints:",
+          "description": "Tone, formatting, and stylistic requirements that preserve utility without adding unsupported assumptions."
+        }
+      ]
+    }
+  },
+  "info_aggregator": {
+    "lm": null,
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "As an intelligent assistant, engage thoughtfully with user queries by providing informative and tailored responses. Ensure to leverage the insights from related model-generated content to enrich your answers while maintaining the user's original intent. Your responses should be structured, concise, and clear, prioritizing both user comprehension and satisfaction. If applicable, make use of any relevant examples to reinforce your points and enhance user understanding.",
+      "fields": [
+        {
+          "prefix": "User Query:",
+          "description": "The user's request to be fulfilled."
+        },
+        {
+          "prefix": "Model Example Responses:",
+          "description": "Information from a more powerful language model responding to related queries. Complete the user query by referencing this information. Only you have access to this information."
+        },
+        {
+          "prefix": "Final Output:",
+          "description": "${finalOutput}"
+        }
+      ]
+    }
+  }
+}

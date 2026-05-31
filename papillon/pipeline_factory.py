@@ -14,6 +14,7 @@ def build_pipeline(
     allow_direct_bypass=True,
     privacy_filter_name="regex_presidio",
     pii_score_threshold=0.5,
+    structured_planner_mode="cot",
 ):
     if pipeline_name == "legacy":
         return PAPILLON(untrusted_model)
@@ -25,5 +26,6 @@ def build_pipeline(
             privacy_filter=PrivacyFilter(score_threshold=pii_score_threshold),
             allow_direct_bypass=allow_direct_bypass,
             pii_score_threshold=pii_score_threshold,
+            planner_mode=structured_planner_mode,
         )
     raise ValueError(f"Unsupported pipeline: {pipeline_name}")

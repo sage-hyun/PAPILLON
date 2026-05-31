@@ -47,7 +47,10 @@ def load_prompt_with_pipeline_compat(pipeline, prompt_file):
 
     for name, param in pipeline_params.items():
         if name in payload:
-            param.load_state(payload[name], use_legacy_loading=True)
+            try:
+                param.load_state(payload[name])
+            except TypeError:
+                param.load_state(payload[name], use_legacy_loading=True)
             loaded_keys.append(name)
         else:
             skipped_keys.append(name)

@@ -30,11 +30,18 @@ if __name__ == "__main__":
     parser.add_argument("--prompt_file", type=str, default="ORIGINAL", help="The DSPy-optimized prompt, stored as a json file")
     parser.add_argument("--model_name", type=str, help="The Huggingface identifier / name for your local LM")
     parser.add_argument("--output_file_name", type=str, default="output.csv")
-    parser.add_argument("--pipeline", type=str, choices=["legacy", "structured_v1"], default="legacy")
+    parser.add_argument("--pipeline", type=str, choices=["legacy", "structured_v1"], default="structured_v1")
     parser.add_argument("--allow_direct_bypass", type=str_to_bool, default=True)
     parser.add_argument("--privacy_filter", type=str, default="regex_presidio")
     parser.add_argument("--pii_score_threshold", type=float, default=0.5)
+    parser.add_argument("--structured_planner_mode", choices=["cot", "predict"], default="cot")
+    parser.add_argument("--debug_threads", type=str_to_bool, default=False, help="Enable verbose thread/stage debug logs during evaluation.")
+    parser.add_argument("--debug_query_preview", type=int, default=80, help="Max query preview length in thread debug logs.")
     args = parser.parse_args()
+
+    os.environ["PAPILLON_DEBUG_THREADS"] = "1" if args.debug_threads else "0"
+    os.environ["PAPILLON_DEBUG_QUERY_PREVIEW"] = str(args.debug_query_preview)
+    os.environ["PAPILLON_DEBUG_RAISE"] = "1" if args.debug_threads else "0"
 
     data_frame = pandas.read_csv(args.data_file)
     local_lm = build_local_lm(
@@ -53,10 +60,13 @@ if __name__ == "__main__":
         allow_direct_bypass=args.allow_direct_bypass,
         privacy_filter_name=args.privacy_filter,
         pii_score_threshold=args.pii_score_threshold,
+        structured_planner_mode=args.structured_planner_mode,
     )
 
     resolved_prompt_file = args.prompt_file
-    if resolved_prompt_file == "ORIGINAL":
+    if resolved_prompt_file and resolved_prompt_file.upper() == "NONE":
+        resolved_prompt_file = ""
+    elif resolved_prompt_file == "ORIGINAL":
         resolved_prompt_file = parse_model_prompt(args.model_name)
 
     if resolved_prompt_file:
@@ -100,33 +110,45 @@ if __name__ == "__main__":
 
         rows.append(
             {
-                "quals": metrics["quality"],
-                "leaks": metrics["leakage"],
+                "quality": metrics["quality"],
+                "leakage": metrics["leakage"],
                 "weighted_leakage": metrics.get("weighted_leakage", metrics["leakage"]),
-                #"leakage_l1_ratio": metrics.get("leakage_l1_ratio", 0.0),
-                #"leakage_l2_ratio": metrics.get("leakage_l2_ratio", 0.0),
-                #"leakage_l3_ratio": metrics.get("leakage_l3_ratio", 0.0),
-                #"leaked_l1": metrics.get("leaked_l1", 0),
-                #"total_l1": metrics.get("total_l1", 0),
-                #"leaked_l2": metrics.get("leaked_l2", 0),
-                #"total_l2": metrics.get("total_l2", 0),
-                #"leaked_l3": metrics.get("leaked_l3", 0),
-                #"total_l3": metrics.get("total_l3", 0),
-                "exposed_token_count": metrics["exposed_token_count"],
-                "entity_retention_rate": metrics["entity_retention_rate"],
-                "schema_valid": metrics["schema_valid"],
-                "latency": metrics["latency"],
-                "route": metrics["route"],
+                "leakage_l1_ratio": metrics.get("leakage_l1_ratio", 0.0),
+                "leakage_l2_ratio": metrics.get("leakage_l2_ratio", 0.0),
+                "leakage_l3_ratio": metrics.get("leakage_l3_ratio", 0.0),
+                "leaked_l1": metrics.get("leaked_l1", 0),
+                "total_l1": metrics.get("total_l1", 0),
+                "leaked_l2": metrics.get("leaked_l2", 0),
+                "total_l2": metrics.get("total_l2", 0),
+                "leaked_l3": metrics.get("leaked_l3", 0),
+                "total_l3": metrics.get("total_l3", 0),
+                "exposed_token_count": metrics.get("exposed_token_count", -1),
+                "entity_retention_rate": metrics.get("entity_retention_rate", -1),
+                "schema_valid": metrics.get("schema_valid", False),
+                "latency": metrics.get("latency", getattr(pred, "latency", 0.0)),
+                "route": metrics.get("route", getattr(pred, "route", "legacy")),
                 "queries": row["user_query"],
                 "targets": row["target_response"],
                 "papillon_completion": getattr(pred, "output", ""),
                 "papillon_prompt": getattr(pred, "cloud_prompt", getattr(pred, "prompt", "")),
+                "cloud_model_raw_response": getattr(pred, "gptResponse", ""),
+                "structured_delegation_output_json": json.dumps(
+                    getattr(pred, "structured_delegation_output", getattr(pred, "structured_fields", {})),
+                    ensure_ascii=False,
+                ),
+                "structured_task": getattr(pred, "structured_fields", {}).get("task", ""),
+                "structured_safe_context": getattr(pred, "structured_fields", {}).get("safe_context", ""),
+                "structured_style_constraints": getattr(pred, "structured_fields", {}).get("style_constraints", ""),
+                "structured_rationale": getattr(pred, "structured_fields", {}).get("rationale", ""),
+                "info_aggregator_output": getattr(pred, "info_aggregator_output", getattr(pred, "output", "")),
                 "pii_str": row["pii_units"],
                 "l1_units": l1_str,
                 "l2_units": l2_str,
                 "l3_terms": l3_str,
-                #"structured_fields_json": json.dumps(getattr(pred, "structured_fields", {})),
-                #"detected_pii_json": json.dumps(getattr(pred, "detected_pii", [])),
+                "structured_fields_json": json.dumps(getattr(pred, "structured_fields", {}), ensure_ascii=False),
+                "detected_pii_json": json.dumps(getattr(pred, "detected_pii", []), ensure_ascii=False),
+                "detector_error": getattr(pred, "detector_error", ""),
+                "route_reason": getattr(pred, "route_reason", ""),
             }
         )
 
