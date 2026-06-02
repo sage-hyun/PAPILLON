@@ -140,12 +140,14 @@ def collect_deterministic_metrics(
     cloud_prompt: Optional[str],
     route: Optional[str],
     structured_fields: Optional[Dict[str, str]],
-    latency: Optional[float]
+    total_ms: Optional[float],
+    latency_breakdown: Optional[Dict[str, float]] = None,
 ) -> Dict[str, object]:
     return {
         "exposed_token_count": exposed_token_count(pii_str, cloud_prompt),
         "entity_retention_rate": entity_retention_rate(pii_str, target_response, final_output),
         "schema_valid": schema_valid(route, structured_fields, cloud_prompt),
-        "latency": latency,
+        "total_ms": total_ms,
+        "latency_breakdown": dict(latency_breakdown) if latency_breakdown else {},
         "route": route or "legacy",
     }

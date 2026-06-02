@@ -46,6 +46,19 @@ def _query_fingerprint(user_query):
     return digest, preview
 
 
+LATENCY_COMPONENTS = (
+    "privacy_filter_ms",
+    "prompt_creator_ms",
+    "cloud_ms",
+    "aggregator_ms",
+    "total_ms",
+)
+
+
+def empty_latency_breakdown():
+    return {key: 0.0 for key in LATENCY_COMPONENTS}
+
+
 def _retry_call(fn, *, max_retries=3, **kwargs):
     last_exc = None
     for _ in range(max_retries):
@@ -112,12 +125,15 @@ class StructuredPAPILLON(dspy.Module):
         self.allow_direct_bypass = allow_direct_bypass
         self.pii_score_threshold = pii_score_threshold
 
-    def analyze_query(self, user_query):
+    def analyze_query(self, user_query, breakdown=None):
         fp, preview = _query_fingerprint(user_query)
         start = time.perf_counter()
         _debug_log("analyze_query.start", query_fp=fp, query_preview=repr(preview))
         filter_result = self.privacy_filter.analyze(user_query)
         route_decision = decide_route(filter_result, allow_direct_bypass=self.allow_direct_bypass)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        if breakdown is not None:
+            breakdown["privacy_filter_ms"] += elapsed_ms
         _debug_log(
             "analyze_query.done",
             query_fp=fp,
@@ -127,17 +143,17 @@ class StructuredPAPILLON(dspy.Module):
             placeholders=len(filter_result.placeholder_map),
             detector_available=filter_result.detector_available,
             detector_uncertain=filter_result.uncertain,
-            elapsed_ms=f"{(time.perf_counter() - start) * 1000:.1f}",
+            elapsed_ms=f"{elapsed_ms:.1f}",
         )
         return filter_result, route_decision
 
-    def preview(self, user_query):
-        filter_result, route_decision = self.analyze_query(user_query)
+    def preview(self, user_query, breakdown=None):
+        filter_result, route_decision = self.analyze_query(user_query, breakdown=breakdown)
         structured_fields = {}
         cloud_prompt = user_query
 
         if route_decision.route == "protected":
-            structured_fields = self._build_structured_fields(user_query, filter_result)
+            structured_fields = self._build_structured_fields(user_query, filter_result, breakdown=breakdown)
             cloud_prompt = self.render_cloud_prompt(structured_fields)
 
         return {
@@ -157,20 +173,23 @@ class StructuredPAPILLON(dspy.Module):
     def run_with_prompt(self, user_query, cloud_prompt=None):
         preview = self.preview(user_query)
         effective_prompt = cloud_prompt or preview["cloud_prompt"]
-        return self._execute(user_query, preview, effective_prompt)
+        return self._execute(user_query, preview, effective_prompt, time.perf_counter())
 
     def forward(self, user_query):
         start_time = time.perf_counter()
+        breakdown = empty_latency_breakdown()
         fp, preview = _query_fingerprint(user_query)
         _debug_log("forward.start", query_fp=fp, query_preview=repr(preview))
         try:
-            preview = self.preview(user_query)
-            response = self._execute(user_query, preview, preview["cloud_prompt"], start_time)
+            preview = self.preview(user_query, breakdown=breakdown)
+            response = self._execute(user_query, preview, preview["cloud_prompt"], start_time, breakdown=breakdown)
+            breakdown["total_ms"] = (time.perf_counter() - start_time) * 1000
+            response.total_ms = breakdown["total_ms"]
             _debug_log(
                 "forward.done",
                 query_fp=fp,
                 route=preview["route"],
-                latency_ms=f"{response.latency * 1000:.1f}",
+                total_ms=f"{response.total_ms:.1f}",
             )
             return response
         except Exception as exc:
@@ -194,10 +213,11 @@ class StructuredPAPILLON(dspy.Module):
                 placeholder_map={},
                 detector_available=False,
                 detector_uncertain=True,
-                latency=0.0
+                total_ms=0.0,
+                latency_breakdown=empty_latency_breakdown(),
             )
 
-    def _build_structured_fields(self, user_query, filter_result):
+    def _build_structured_fields(self, user_query, filter_result, breakdown=None):
         fp, _ = _query_fingerprint(user_query)
         placeholder_hints = ", ".join(filter_result.placeholder_map.keys()) or "NONE"
         start = time.perf_counter()
@@ -217,6 +237,9 @@ class StructuredPAPILLON(dspy.Module):
         )
         if structured_plan is None:
             raise exc
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        if breakdown is not None:
+            breakdown["prompt_creator_ms"] += elapsed_ms
         _debug_log(
             "structured_prompt_creator.done",
             query_fp=fp,
@@ -225,7 +248,7 @@ class StructuredPAPILLON(dspy.Module):
             safe_context_len=len(getattr(structured_plan, "safe_context", "") or ""),
             style_len=len(getattr(structured_plan, "style_constraints", "") or ""),
             rationale_len=len(getattr(structured_plan, "rationale", "") or ""),
-            elapsed_ms=f"{(time.perf_counter() - start) * 1000:.1f}",
+            elapsed_ms=f"{elapsed_ms:.1f}",
         )
         return {
             "task": self._clean_text(getattr(structured_plan, "task", "") or ""),
@@ -234,7 +257,7 @@ class StructuredPAPILLON(dspy.Module):
             "rationale": self._clean_text(getattr(structured_plan, "rationale", "")),
         }
 
-    def _execute(self, user_query, preview, cloud_prompt, start_time):
+    def _execute(self, user_query, preview, cloud_prompt, start_time, breakdown=None):
         fp, _ = _query_fingerprint(user_query)
         route = preview["route"]
         remote_prompt = user_query if route == "direct" else cloud_prompt
@@ -246,14 +269,16 @@ class StructuredPAPILLON(dspy.Module):
             prompt_len=len(remote_prompt or ""),
         )
         response = self.untrusted_model(remote_prompt)[0]
+        cloud_elapsed_ms = (time.perf_counter() - remote_start) * 1000
+        if breakdown is not None:
+            breakdown["cloud_ms"] += cloud_elapsed_ms
         _debug_log(
             "untrusted_model.done",
             query_fp=fp,
             route=route,
             response_len=len(response or ""),
-            elapsed_ms=f"{(time.perf_counter() - remote_start) * 1000:.1f}",
+            elapsed_ms=f"{cloud_elapsed_ms:.1f}",
         )
-        aggregator_output = response
         if route == "direct":
             final_output = response
         else:
@@ -267,15 +292,17 @@ class StructuredPAPILLON(dspy.Module):
                 userQuery=user_query,
                 modelExampleResponses=response,
             )
-            aggregator_output = getattr(aggregator_prediction, "finalOutput", "") or ""
-            final_output = aggregator_output
+            final_output = getattr(aggregator_prediction, "finalOutput", "") or ""
+            agg_elapsed_ms = (time.perf_counter() - agg_start) * 1000
+            if breakdown is not None:
+                breakdown["aggregator_ms"] += agg_elapsed_ms
             _debug_log(
                 "info_aggregator.done",
                 query_fp=fp,
                 output_len=len(final_output or ""),
-                elapsed_ms=f"{(time.perf_counter() - agg_start) * 1000:.1f}",
+                elapsed_ms=f"{agg_elapsed_ms:.1f}",
             )
-        latency = time.perf_counter() - start_time
+        total_ms = (time.perf_counter() - start_time) * 1000
 
         return dspy.Prediction(
             prompt=remote_prompt,
@@ -290,9 +317,8 @@ class StructuredPAPILLON(dspy.Module):
             detector_available=preview["detector_available"],
             detector_uncertain=preview["detector_uncertain"],
             route_reason=preview["route_reason"],
-            structured_delegation_output=preview["structured_fields"],
-            info_aggregator_output=aggregator_output,
-            latency=latency
+            total_ms=total_ms,
+            latency_breakdown=breakdown if breakdown is not None else empty_latency_breakdown(),
         )
 
     @staticmethod

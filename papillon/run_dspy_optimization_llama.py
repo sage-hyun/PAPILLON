@@ -426,7 +426,8 @@ def metric_finegrained(
             "entity_retention_rate": -1,
             "schema_valid": False,
             "route": getattr(pred, "route", "legacy"),
-            "latency": getattr(pred, "latency", 0.0),
+            "total_ms": getattr(pred, "total_ms", 0.0),
+            "latency_breakdown": dict(getattr(pred, "latency_breakdown", {}) or {}),
         }
     try:
         with dspy.context(lm=openai_lm):
@@ -455,7 +456,8 @@ def metric_finegrained(
             "entity_retention_rate": -1,
             "schema_valid": False,
             "route": getattr(pred, "route", "legacy"),
-            "latency": getattr(pred, "latency", 0.0),
+            "total_ms": getattr(pred, "total_ms", 0.0),
+            "latency_breakdown": dict(getattr(pred, "latency_breakdown", {}) or {}),
         }
     deterministic_metrics = collect_deterministic_metrics(
         pii_str=og_pii,
@@ -464,7 +466,8 @@ def metric_finegrained(
         cloud_prompt=getattr(pred, "cloud_prompt", pred_prompt),
         route=getattr(pred, "route", "legacy"),
         structured_fields=getattr(pred, "structured_fields", {}),
-        latency=getattr(pred, "latency", 0.0)
+        total_ms=getattr(pred, "total_ms", 0.0),
+        latency_breakdown=getattr(pred, "latency_breakdown", None),
     )
     level_counts_available = any(
         isinstance(value, str) and value.strip()
@@ -523,7 +526,8 @@ def synthesize_tvt(data_file):
     for i, row in df.iterrows():
         if pandas.isna(row["pii_units"]) or not isinstance(row["pii_units"], str) or len(row["pii_units"]) == 0:
             continue
-        new_dp = Example({"target_response": row["target_response"],
+        new_dp = Example({"conversation_hash": row["conversation_hash"] if "conversation_hash" in row else "",
+                          "target_response": row["target_response"],
                           "user_query": row["user_query"],
                           "pii_str": row["pii_units"],
                           "l1_str": row["l1_units"] if "l1_units" in row and isinstance(row["l1_units"], str) else "",
@@ -601,26 +605,23 @@ def build_optimization_sample_row(trial_index, eval_kind, gold, pred, metrics):
         "exposed_token_count": metrics.get("exposed_token_count", -1),
         "entity_retention_rate": metrics.get("entity_retention_rate", -1),
         "schema_valid": metrics.get("schema_valid", False),
-        "latency": metrics.get("latency", getattr(pred, "latency", 0.0)),
+        "latency_total_ms": metrics.get("total_ms", getattr(pred, "total_ms", 0.0)),
+        "latency_privacy_filter_ms": (metrics.get("latency_breakdown") or {}).get("privacy_filter_ms", 0.0),
+        "latency_prompt_creator_ms": (metrics.get("latency_breakdown") or {}).get("prompt_creator_ms", 0.0),
+        "latency_cloud_ms": (metrics.get("latency_breakdown") or {}).get("cloud_ms", 0.0),
+        "latency_aggregator_ms": (metrics.get("latency_breakdown") or {}).get("aggregator_ms", 0.0),
         "route": metrics.get("route", getattr(pred, "route", "legacy")),
+        "conversation_hash": getattr(gold, "conversation_hash", ""),
         "queries": getattr(gold, "user_query", ""),
         "targets": getattr(gold, "target_response", ""),
-        "papillon_completion": getattr(pred, "output", ""),
+        "final_output": getattr(pred, "output", ""),
         "papillon_prompt": getattr(pred, "cloud_prompt", getattr(pred, "prompt", "")),
         "cloud_model_raw_response": getattr(pred, "gptResponse", ""),
-        "structured_delegation_output_json": json.dumps(
-            getattr(pred, "structured_delegation_output", getattr(pred, "structured_fields", {})),
-            ensure_ascii=False,
-        ),
-        "structured_task": getattr(pred, "structured_fields", {}).get("task", ""),
-        "structured_safe_context": getattr(pred, "structured_fields", {}).get("safe_context", ""),
-        "structured_style_constraints": getattr(pred, "structured_fields", {}).get("style_constraints", ""),
-        "structured_rationale": getattr(pred, "structured_fields", {}).get("rationale", ""),
-        "info_aggregator_output": getattr(pred, "info_aggregator_output", getattr(pred, "output", "")),
         "pii_str": getattr(gold, "pii_str", ""),
         "l1_units": getattr(gold, "l1_str", ""),
         "l2_units": getattr(gold, "l2_str", ""),
         "l3_terms": getattr(gold, "l3_str", ""),
+        "structured_fields_json": json.dumps(getattr(pred, "structured_fields", {}), ensure_ascii=False),
     }
 
 
@@ -667,7 +668,7 @@ def install_optimization_sample_logger(sample_csv_path, sample_count, openai_lm)
                 )
             except Exception as exc:
                 print(f"[WARN] optimization sample logging failure: {type(exc).__name__}: {str(exc)[:200]}")
-                pred = dspy.Prediction(output="", prompt="", cloud_prompt="", gptResponse="", latency=0.0)
+                pred = dspy.Prediction(output="", prompt="", cloud_prompt="", gptResponse="", total_ms=0.0)
                 metrics = {
                     "quality": -1,
                     "leakage": -1,
@@ -688,7 +689,8 @@ def install_optimization_sample_logger(sample_csv_path, sample_count, openai_lm)
                     "exposed_token_count": -1,
                     "entity_retention_rate": -1,
                     "schema_valid": False,
-                    "latency": 0.0,
+                    "total_ms": 0.0,
+                    "latency_breakdown": {},
                     "route": "legacy",
                 }
             sample_rows.append(

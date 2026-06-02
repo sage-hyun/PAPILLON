@@ -3,6 +3,11 @@ import time
 
 import os; os.environ['LITELLM_LOG'] = 'ERROR'
 
+try:
+    from .structured_pipeline import empty_latency_breakdown
+except ImportError:
+    from structured_pipeline import empty_latency_breakdown
+
 
 class CreateOnePrompt(dspy.Signature):
     """
@@ -29,22 +34,37 @@ class PAPILLON(dspy.Module):
 
     def forward(self, user_query):
         start_time = time.perf_counter()
+        breakdown = empty_latency_breakdown()
         try:
+            prompt_start = time.perf_counter()
             prompt_prediction = self.prompt_creater(userQuery=user_query)
             prompt = getattr(prompt_prediction, "createdPrompt", "") or ""
+            breakdown["prompt_creator_ms"] = (time.perf_counter() - prompt_start) * 1000
+
+            cloud_start = time.perf_counter()
             response = self.untrusted_model(prompt)[0]
+            breakdown["cloud_ms"] = (time.perf_counter() - cloud_start) * 1000
+
+            agg_start = time.perf_counter()
             output_prediction = self.info_aggregator(userQuery=user_query, modelExampleResponses=response)
             final_output = getattr(output_prediction, "finalOutput", "") or ""
-            end_time = time.perf_counter() 
-            latency = end_time - start_time
+            breakdown["aggregator_ms"] = (time.perf_counter() - agg_start) * 1000
+
+            breakdown["total_ms"] = (time.perf_counter() - start_time) * 1000
         except Exception as e:
             print(f"{e}")
-            return dspy.Prediction(prompt="", output="", gptResponse="", info_aggregator_output="", latency=0.0)
+            return dspy.Prediction(
+                prompt="",
+                output="",
+                gptResponse="",
+                total_ms=0.0,
+                latency_breakdown=empty_latency_breakdown(),
+            )
 
         return dspy.Prediction(
             prompt=prompt,
             output=final_output,
             gptResponse=response,
-            info_aggregator_output=final_output,
-            latency=latency,
+            total_ms=breakdown["total_ms"],
+            latency_breakdown=breakdown,
         )

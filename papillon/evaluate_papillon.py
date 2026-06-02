@@ -75,10 +75,16 @@ if __name__ == "__main__":
     rows = []
     qual_scores = []
     leak_scores = []
-    wpl_scores = []   
-    etc_scores = []   
-    err_scores = []     
-    latency_scores = []
+    wpl_scores = []
+    etc_scores = []
+    err_scores = []
+    latency_component_scores = {
+        "privacy_filter_ms": [],
+        "prompt_creator_ms": [],
+        "cloud_ms": [],
+        "aggregator_ms": [],
+        "total_ms": [],
+    }
 
     for _, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
         gold = Example(
@@ -106,10 +112,13 @@ if __name__ == "__main__":
             wpl_scores.append(metrics.get("weighted_leakage", metrics["leakage"]))
             etc_scores.append(metrics["exposed_token_count"])
             err_scores.append(metrics["entity_retention_rate"])
-            latency_scores.append(metrics["latency"])
+            breakdown = metrics.get("latency_breakdown") or {}
+            for key, bucket in latency_component_scores.items():
+                bucket.append(float(breakdown.get(key, 0.0)))
 
         rows.append(
             {
+                "conversation_hash": row["conversation_hash"] if "conversation_hash" in row else "",
                 "quality": metrics["quality"],
                 "leakage": metrics["leakage"],
                 "weighted_leakage": metrics.get("weighted_leakage", metrics["leakage"]),
@@ -125,22 +134,17 @@ if __name__ == "__main__":
                 "exposed_token_count": metrics.get("exposed_token_count", -1),
                 "entity_retention_rate": metrics.get("entity_retention_rate", -1),
                 "schema_valid": metrics.get("schema_valid", False),
-                "latency": metrics.get("latency", getattr(pred, "latency", 0.0)),
+                "latency_total_ms": metrics.get("total_ms", getattr(pred, "total_ms", 0.0)),
+                "latency_privacy_filter_ms": (metrics.get("latency_breakdown") or {}).get("privacy_filter_ms", 0.0),
+                "latency_prompt_creator_ms": (metrics.get("latency_breakdown") or {}).get("prompt_creator_ms", 0.0),
+                "latency_cloud_ms": (metrics.get("latency_breakdown") or {}).get("cloud_ms", 0.0),
+                "latency_aggregator_ms": (metrics.get("latency_breakdown") or {}).get("aggregator_ms", 0.0),
                 "route": metrics.get("route", getattr(pred, "route", "legacy")),
                 "queries": row["user_query"],
                 "targets": row["target_response"],
-                "papillon_completion": getattr(pred, "output", ""),
+                "final_output": getattr(pred, "output", ""),
                 "papillon_prompt": getattr(pred, "cloud_prompt", getattr(pred, "prompt", "")),
                 "cloud_model_raw_response": getattr(pred, "gptResponse", ""),
-                "structured_delegation_output_json": json.dumps(
-                    getattr(pred, "structured_delegation_output", getattr(pred, "structured_fields", {})),
-                    ensure_ascii=False,
-                ),
-                "structured_task": getattr(pred, "structured_fields", {}).get("task", ""),
-                "structured_safe_context": getattr(pred, "structured_fields", {}).get("safe_context", ""),
-                "structured_style_constraints": getattr(pred, "structured_fields", {}).get("style_constraints", ""),
-                "structured_rationale": getattr(pred, "structured_fields", {}).get("rationale", ""),
-                "info_aggregator_output": getattr(pred, "info_aggregator_output", getattr(pred, "output", "")),
                 "pii_str": row["pii_units"],
                 "l1_units": l1_str,
                 "l2_units": l2_str,
@@ -159,5 +163,7 @@ if __name__ == "__main__":
     print("AVERAGE WPL SCORE    :", safe_average(wpl_scores))
     print("AVERAGE ETC SCORE    :", safe_average(etc_scores))
     print("AVERAGE ERR SCORE    :", safe_average(err_scores))
-    print("AVERAGE LATENCY      :", safe_average(latency_scores))
+    print("---- per-component latency (ms, all-row avg incl. zeros) ----")
+    for key, bucket in latency_component_scores.items():
+        print(f"  {key:24s}: {safe_average(bucket):.1f}")
     print("==============")
