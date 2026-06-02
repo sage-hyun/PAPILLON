@@ -37,6 +37,7 @@ if __name__ == "__main__":
     parser.add_argument("--structured_planner_mode", choices=["cot", "predict"], default="cot")
     parser.add_argument("--debug_threads", type=str_to_bool, default=False, help="Enable verbose thread/stage debug logs during evaluation.")
     parser.add_argument("--debug_query_preview", type=int, default=80, help="Max query preview length in thread debug logs.")
+    parser.add_argument("--start_row", type=int, default=0, help="Skip the first N rows of the data file. If output_file_name exists, its rows are loaded so the file stays continuous.")
     args = parser.parse_args()
 
     os.environ["PAPILLON_DEBUG_THREADS"] = "1" if args.debug_threads else "0"
@@ -44,6 +45,8 @@ if __name__ == "__main__":
     os.environ["PAPILLON_DEBUG_RAISE"] = "1" if args.debug_threads else "0"
 
     data_frame = pandas.read_csv(args.data_file)
+    if args.start_row > 0:
+        data_frame = data_frame.iloc[args.start_row:]
     local_lm = build_local_lm(
         args.model_name,
         host=LOCAL_LM_API_HOST,
@@ -73,6 +76,8 @@ if __name__ == "__main__":
         load_prompt_with_pipeline_compat(pipeline, resolved_prompt_file)
 
     rows = []
+    if args.start_row > 0 and os.path.exists(args.output_file_name):
+        rows = pandas.read_csv(args.output_file_name).to_dict(orient="records")
     qual_scores = []
     leak_scores = []
     wpl_scores = []
@@ -87,6 +92,8 @@ if __name__ == "__main__":
     }
 
     for _, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
+        if not isinstance(row["user_query"], str):
+            continue
         gold = Example(
             {
                 "target_response": row["target_response"],
