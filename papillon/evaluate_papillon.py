@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt_file", type=str, default="ORIGINAL", help="The DSPy-optimized prompt, stored as a json file")
     parser.add_argument("--model_name", type=str, help="The Huggingface identifier / name for your local LM")
     parser.add_argument("--output_file_name", type=str, default="output.csv")
-    parser.add_argument("--pipeline", type=str, choices=["legacy", "structured_v1"], default="structured_v1")
+    parser.add_argument("--pipeline", type=str, choices=["legacy", "structured_v1", "baseline_unredacted", "baseline_redacted"], default="structured_v1")
     parser.add_argument("--allow_direct_bypass", type=str_to_bool, default=True)
     parser.add_argument("--privacy_filter", type=str, default="regex_presidio")
     parser.add_argument("--pii_score_threshold", type=float, default=0.5)
@@ -95,6 +95,12 @@ if __name__ == "__main__":
     for _, row in tqdm.tqdm(data_frame.iterrows(), total=len(data_frame)):
         if not isinstance(row["user_query"], str):
             continue
+        if args.pipeline == "baseline_redacted":
+            input_query = row.get("redacted_query") if hasattr(row, "get") else row["redacted_query"]
+            if not isinstance(input_query, str) or not input_query.strip():
+                continue
+        else:
+            input_query = row["user_query"]
         gold = Example(
             {
                 "target_response": row["target_response"],
@@ -103,7 +109,7 @@ if __name__ == "__main__":
             }
         ).with_inputs("user_query")
         try:
-            pred = pipeline(row["user_query"])
+            pred = pipeline(input_query)
         except litellm.exceptions.BadRequestError:
             continue
 

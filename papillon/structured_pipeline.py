@@ -332,3 +332,36 @@ class StructuredPAPILLON(dspy.Module):
     @staticmethod
     def _clean_text(value):
         return " ".join((value or "").strip().split())
+
+
+class BaselinePassthrough(dspy.Module):
+    """Send the input query straight to the untrusted model with no local processing."""
+
+    def __init__(self, untrusted_model, route_label="baseline"):
+        super().__init__()
+        self.untrusted_model = untrusted_model
+        self.route_label = route_label
+
+    def forward(self, user_query):
+        start = time.perf_counter()
+        breakdown = empty_latency_breakdown()
+        remote_start = time.perf_counter()
+        response = self.untrusted_model(user_query)[0]
+        breakdown["cloud_ms"] = (time.perf_counter() - remote_start) * 1000
+        breakdown["total_ms"] = (time.perf_counter() - start) * 1000
+        return dspy.Prediction(
+            prompt=user_query,
+            output=response,
+            gptResponse=response,
+            route=self.route_label,
+            cloud_prompt=user_query,
+            detected_pii=[],
+            structured_fields={},
+            redacted_query="",
+            placeholder_map={},
+            detector_available=False,
+            detector_uncertain=False,
+            route_reason=self.route_label,
+            total_ms=breakdown["total_ms"],
+            latency_breakdown=breakdown,
+        )

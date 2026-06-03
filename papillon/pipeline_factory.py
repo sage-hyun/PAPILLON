@@ -1,11 +1,11 @@
 try:
     from .privacy_filter import PrivacyFilter
     from .run_llama_dspy import PAPILLON
-    from .structured_pipeline import StructuredPAPILLON
+    from .structured_pipeline import BaselinePassthrough, StructuredPAPILLON
 except ImportError:
     from privacy_filter import PrivacyFilter
     from run_llama_dspy import PAPILLON
-    from structured_pipeline import StructuredPAPILLON
+    from structured_pipeline import BaselinePassthrough, StructuredPAPILLON
 
 
 def build_pipeline(
@@ -28,4 +28,8 @@ def build_pipeline(
             pii_score_threshold=pii_score_threshold,
             planner_mode=structured_planner_mode,
         )
+    if pipeline_name == "baseline_unredacted":
+        return BaselinePassthrough(untrusted_model, route_label="baseline_unredacted")
+    if pipeline_name == "baseline_redacted":
+        return BaselinePassthrough(untrusted_model, route_label="baseline_redacted")
     raise ValueError(f"Unsupported pipeline: {pipeline_name}")
