@@ -53,9 +53,10 @@ if __name__ == "__main__":
         port=args.port,
         api_key=LOCAL_LM_API_KEY,
         max_tokens=4000,
+        cache=False
     )
     dspy.configure(lm=local_lm)
-    openai_lm = build_openai_lm(args.openai_model, max_tokens=4000)
+    openai_lm = build_openai_lm(args.openai_model, max_tokens=4000, cache=False)
 
     pipeline = build_pipeline(
         pipeline_name=args.pipeline,

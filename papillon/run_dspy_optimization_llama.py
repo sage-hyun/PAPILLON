@@ -494,7 +494,7 @@ def metric_finegrained(
     fidelity_parts = compute_task_fidelity_metrics(gold, pred)
     return {
         "quality": score_dict.quality,
-        "leakage": leakage_value,
+        "leakage": normalized_leakage(score_dict.leakage, og_pii),
         "weighted_leakage": weighted_parts["weighted_leakage"],
         "leakage_l1_ratio": weighted_parts["leakage_l1_ratio"],
         "leakage_l2_ratio": weighted_parts["leakage_l2_ratio"],
