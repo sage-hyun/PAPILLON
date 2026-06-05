@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--allow_direct_bypass", type=str_to_bool, default=True)
     parser.add_argument("--privacy_filter", type=str, default="regex_presidio")
     parser.add_argument("--pii_score_threshold", type=float, default=0.5)
-    parser.add_argument("--structured_planner_mode", choices=["cot", "predict"], default="cot")
+    parser.add_argument("--structured_planner_mode", choices=["cot", "predict"], default="predict")
     parser.add_argument("--debug_threads", type=str_to_bool, default=False, help="Enable verbose thread/stage debug logs during evaluation.")
     parser.add_argument("--debug_query_preview", type=int, default=80, help="Max query preview length in thread debug logs.")
     parser.add_argument("--start_row", type=int, default=0, help="Skip the first N rows of the data file. If output_file_name exists, its rows are loaded so the file stays continuous.")

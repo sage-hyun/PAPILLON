@@ -296,6 +296,27 @@ def ner_aggregate(per_row: pd.DataFrame) -> pd.DataFrame:
     ])
 
 
+def ner_aggregate_row_level(per_row: pd.DataFrame) -> pd.DataFrame:
+    """Row-level binary: '>=1 GT entity' vs '>=1 detected entity'."""
+    has_gt = per_row["n_gold"] > 0
+    has_pred = per_row["n_detected"] > 0
+    tp = int((has_gt & has_pred).sum())
+    fp = int((~has_gt & has_pred).sum())
+    fn = int((has_gt & ~has_pred).sum())
+    tn = int((~has_gt & ~has_pred).sum())
+    precision = tp / (tp + fp) if (tp + fp) else float("nan")
+    recall = tp / (tp + fn) if (tp + fn) else float("nan")
+    f1 = (2 * precision * recall / (precision + recall)
+          if (precision and recall and not (np.isnan(precision) or np.isnan(recall)))
+          else float("nan"))
+    accuracy = (tp + tn) / len(per_row) if len(per_row) else float("nan")
+    return pd.DataFrame([{
+        "n_rows": len(per_row),
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "precision": precision, "recall": recall, "f1": f1, "accuracy": accuracy,
+    }])
+
+
 # ---------- ratio sweep (monotonic) ----------
 
 def ratio_sweep(
@@ -336,6 +357,69 @@ def ratio_sweep(
                 "source": "baseline",
             })
     return pd.DataFrame(rows)
+
+
+def no_pii_pct_sweep(
+    df: pd.DataFrame,
+    pct_list=(0, 50, 100, 150, 200),
+    seed: int = 0,
+    mode: str = "monotonic",
+    baseline_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Sweep over non-PII count as percentage of total PII rows.
+    All PII rows are always included; non-PII rows added = pct/100 * |PII|.
+    """
+    n_pii_pool = int((~df["_is_no_pii"]).sum())
+
+    def _row(sub, pct, src):
+        valid = sub[sub["_valid"]]
+        return {
+            "no_pii_pct": pct,
+            "n_rows": len(sub),
+            "n_with_pii": int((~sub["_is_no_pii"]).sum()),
+            "n_no_pii": int(sub["_is_no_pii"].sum()),
+            "n_valid": len(valid),
+            "quality": _avg(valid["quality"]) if "quality" in valid else float("nan"),
+            "weighted_leakage": _avg(valid["weighted_leakage"]) if "weighted_leakage" in valid else float("nan"),
+            "latency_total_ms": _avg(valid["latency_total_ms"]) if "latency_total_ms" in valid else float("nan"),
+            "source": src,
+        }
+
+    rows = []
+    for pct in pct_list:
+        target_no_pii = int(round(n_pii_pool * pct / 100.0))
+        sub = select_rows(df, pii_n=None, no_pii_n=target_no_pii, mode=mode, seed=seed)
+        rows.append(_row(sub, pct, "method"))
+        if baseline_df is not None:
+            sub_b = select_rows(baseline_df, pii_n=None, no_pii_n=target_no_pii, mode=mode, seed=seed)
+            rows.append(_row(sub_b, pct, "baseline"))
+    return pd.DataFrame(rows)
+
+
+def plot_no_pii_pct_sweep(sweep_df: pd.DataFrame, out_path: str) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("[WARN] matplotlib not installed, skipping plot")
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    for src, sub in sweep_df.groupby("source"):
+        sub = sub.sort_values("no_pii_pct")
+        axes[0].plot(sub["no_pii_pct"], sub["quality"], marker="o", label=src)
+        axes[1].plot(sub["no_pii_pct"], sub["weighted_leakage"], marker="o", label=src)
+        axes[2].plot(sub["no_pii_pct"], sub["latency_total_ms"], marker="o", label=src)
+    for ax, title, ylabel in [
+        (axes[0], "Quality vs non-PII added (%)", "quality"),
+        (axes[1], "Weighted leakage vs non-PII added (%)", "weighted_leakage"),
+        (axes[2], "Total latency (ms) vs non-PII added (%)", "latency_total_ms"),
+    ]:
+        ax.set_title(title)
+        ax.set_xlabel("non-PII added (% of |PII|)")
+        ax.set_ylabel(ylabel)
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
 def plot_sweep(sweep_df: pd.DataFrame, out_path: str) -> None:
@@ -386,6 +470,9 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--sweep", action="store_true", help="Also produce ratio sweep CSV + PNG (pii_ratio on x-axis)")
     p.add_argument("--sweep_ratios", default="1.0,0.9,0.8,0.7,0.6,0.5,0.4,0.3")
+    p.add_argument("--sweep_no_pii_pct", default=None,
+                   help="Comma-separated percentages (relative to |PII|) of non-PII rows to add. "
+                        "E.g. '0,50,100,150,200' adds 0/0.5/1/1.5/2 x |PII| non-PII rows on top of all PII.")
     p.add_argument("--print_counts_only", action="store_true",
                    help="Just load the pool, print counts, and exit -- helps you pick a ratio.")
     args = p.parse_args()
@@ -439,6 +526,11 @@ def main():
         print("\n=== NER FP / FN (method, fixed pii ratio) ===")
         print(agg.to_string(index=False))
         agg.to_csv(os.path.join(args.out_dir, "ner_aggregate.csv"), index=False)
+
+        agg_row = ner_aggregate_row_level(per_row)
+        print("\n=== NER row-level binary (>=1 GT vs >=1 pred) ===")
+        print(agg_row.to_string(index=False))
+        agg_row.to_csv(os.path.join(args.out_dir, "ner_row_level.csv"), index=False)
     else:
         print("[WARN] eval CSV has no detected_pii_json column; skipping NER stats")
 
@@ -450,6 +542,15 @@ def main():
         sweep.to_csv(os.path.join(args.out_dir, "ratio_sweep.csv"), index=False)
         plot_sweep(sweep, os.path.join(args.out_dir, "ratio_sweep.png"))
         print(f"\nratio sweep written -> {args.out_dir}/ratio_sweep.csv (+ .png)")
+
+    # ---- non-PII pct sweep ----
+    if args.sweep_no_pii_pct:
+        pct_list = tuple(int(round(float(x))) for x in args.sweep_no_pii_pct.split(","))
+        sweep_np = no_pii_pct_sweep(df_raw, pct_list=pct_list, seed=args.seed,
+                                    mode=args.sample_mode, baseline_df=baseline_raw)
+        sweep_np.to_csv(os.path.join(args.out_dir, "no_pii_pct_sweep.csv"), index=False)
+        plot_no_pii_pct_sweep(sweep_np, os.path.join(args.out_dir, "no_pii_pct_sweep.png"))
+        print(f"\nno_pii pct sweep written -> {args.out_dir}/no_pii_pct_sweep.csv (+ .png)")
 
     print(f"\nAll outputs -> {args.out_dir}")
 

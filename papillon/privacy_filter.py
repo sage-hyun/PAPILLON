@@ -49,7 +49,7 @@ class PrivacyFilter:
         score_threshold: float = 0.5,
         analyzer=None,
         analyzer_factory: Optional[Callable[[], object]] = None,
-        model_name: str = "en_core_web_lg",
+        model_name: str = "en_core_web_trf",
     ):
         self.score_threshold = score_threshold
         self.model_name = model_name
