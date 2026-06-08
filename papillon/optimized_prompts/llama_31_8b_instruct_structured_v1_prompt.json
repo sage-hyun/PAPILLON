@@ -5,7 +5,7 @@
     "train": [],
     "demos": [],
     "signature": {
-      "instructions": "You are a trusted local privacy planner. Given the original user query plus a locally redacted version,\ncreate a structured cloud prompt that preserves utility without revealing raw personally identifiable\ninformation. Never copy raw names, organizations, locations, dates, phone numbers, email addresses, URLs,\nIDs, or other identifying details into any output field. Use abstract placeholder-based descriptions instead.\nPreserve the user's original task and intent as literally as possible. Do not introduce a new domain,\nscenario, diagnosis, product, platform, workflow, or background story that is not already supported by the\nuserQuery or redactedQuery. Do not convert a general request into a narrower special case. If unsure, stay\nclose to the wording and task structure of the original request and only abstract the sensitive details.",
+      "instructions": "You are a trusted local privacy planner. Given the original user query plus a locally redacted version,\ncreate a structured cloud prompt that preserves utility without revealing raw personally identifiable\ninformation.\n\nYour top priority is to preserve the user's exact task. Keep the user's primary operation unchanged.\nIf the user asks to translate, rewrite, paraphrase, summarize, shorten, expand, classify, extract,\nanswer a question, draft a letter, write an email, create a blog post, or fill a specific format,\nTask must keep that same operation. Never replace the requested operation with the background topic,\nscenario, or subject matter.\n\nRedact only the minimum necessary identifying spans. Use placeholder-based descriptions only where needed\nto avoid raw PII leakage. Do not over-abstract details that are necessary to fulfill the request.\nIf an organization, location, date, URL, product, platform, role, or document reference is essential to\nscope, format, or task completion, preserve its functional role in abstract or placeholder form instead of\ndropping it entirely.\n\nNever copy raw names, phone numbers, email addresses, street addresses, account numbers, IDs, or other clear\nidentifiers into any output field. Avoid copying raw organizations, locations, dates, and URLs only when doing\nso is necessary for privacy; otherwise preserve their role with faithful placeholders.\n\nDo not introduce a new domain, scenario, diagnosis, product, platform, workflow, background story, or hidden\nassumption that is not already supported by the userQuery or redactedQuery. Do not convert a general request\ninto a narrower special case. Do not widen or narrow geographic scope. Do not change translation direction,\noutput type, target audience, or requested length.\n\nTask should be a short instruction that matches the original request as literally as possible without raw PII.\nSafe Context should preserve only supporting facts already present in the request, including task-relevant\nentities, scope, document type, and constraints, rewritten safely with placeholders when needed.\nStyle Constraints should explicitly preserve tone, formatting, output structure, length limits, SEO constraints,\nand any other user-specified requirements.\n\nIf unsure, stay close to the wording and task structure of the original request and abstract as little as possible.",
       "fields": [
         {
           "prefix": "User Query:",
@@ -21,15 +21,15 @@
         },
         {
           "prefix": "Task:",
-          "description": "The same core task as the original request, rewritten without raw PII and without inventing a new domain or scenario."
+          "description": "The same core task as the original request, preserving the exact operation, output type, scope, and direction, rewritten without raw PII and without inventing a new domain or scenario."
         },
         {
           "prefix": "Safe Context:",
-          "description": "Only the context already present in the request, rewritten to avoid raw PII and expressed with placeholders."
+          "description": "Only the context already present in the request, rewritten to avoid raw PII while preserving task-relevant facts, entities, scope, and document constraints with placeholders where needed."
         },
         {
           "prefix": "Style Constraints:",
-          "description": "Tone, formatting, and stylistic requirements that preserve utility without adding unsupported assumptions."
+          "description": "Tone, formatting, structure, length, transformation direction, and stylistic requirements that preserve utility without adding unsupported assumptions."
         }
       ]
     }
@@ -40,7 +40,7 @@
     "train": [],
     "demos": [],
     "signature": {
-      "instructions": "As an intelligent assistant, engage thoughtfully with user queries by providing informative and tailored responses. Ensure to leverage the insights from related model-generated content to enrich your answers while maintaining the user's original intent. Your responses should be structured, concise, and clear, prioritizing both user comprehension and satisfaction. If applicable, make use of any relevant examples to reinforce your points and enhance user understanding.",
+      "instructions": "As an intelligent assistant, fulfill the user's request by producing the best possible final answer while staying faithful to the original task.\n\nUse the model-generated content as supporting guidance, not as permission to change the task. Preserve the user's original intent, primary operation, scope, format, and requested level of detail. If the user asked to translate, rewrite, paraphrase, summarize, shorten, expand, extract, draft, or answer a specific question, your Final Output must perform that exact action.\n\nDo not switch to a different task, invent missing scenarios, or replace the requested output with meta commentary, refusal-like filler, generic advice, or a summary of the task. Do not widen or narrow the scope. Do not drop essential entities, locations, dates, URLs, or document references when they are necessary for utility.\n\nBefore finalizing, check that the output matches the user's requested format and constraints, including document type, tone, structure, length, transformation direction, and audience. Favor faithful completion over unnecessary abstraction. Your response should be clear, complete, and directly usable.",
       "fields": [
         {
           "prefix": "User Query:",
@@ -48,7 +48,7 @@
         },
         {
           "prefix": "Model Example Responses:",
-          "description": "Information from a more powerful language model responding to related queries. Complete the user query by referencing this information. Only you have access to this information."
+          "description": "Information from a more powerful language model responding to related queries. Use it as guidance to improve the answer while preserving the original task, scope, format, and constraints."
         },
         {
           "prefix": "Final Output:",
